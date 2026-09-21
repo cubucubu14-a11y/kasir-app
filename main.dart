@@ -7,10 +7,10 @@ import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
 
 // ============================================================
-//  GANTI URL DI BAWAH INI dengan URL Apps Script kamu
+//  URL Apps Script kamu
 // ============================================================
 const String SCRIPT_URL =
-    'https://script.google.com/macros/s/AKfycbxelmoFg9Y4PiwFGa1e8tQYy7yAPmKetUUKzpBiy80VHOhzOXEP5vRPo7VxExDLyxIQ/exec';
+    'https://script.google.com/macros/s/AKfycbwFep4Th6FMZ-uob8fiSjUKsBTU2boX-iK1i2gDlgKJT0E2dX4wxD0m5teRx-9dfS6g/exec';
 
 void main() {
   runApp(const KasirApp());
@@ -90,7 +90,6 @@ class _KasirPageState extends State<KasirPage> {
       }
     }
     setState(() {});
-    // Coba sync otomatis saat app dibuka
     _syncSemua(silent: true);
   }
 
@@ -108,25 +107,24 @@ class _KasirPageState extends State<KasirPage> {
       RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (m) => '${m[1]}.');
 
   // ============================================================
-  //   GOOGLE SHEETS SYNC
+  //   GOOGLE SHEETS SYNC (pakai GET — menghindari redirect issue)
   // ============================================================
   Future<bool> _kirimKeSheets(Transaksi t) async {
     try {
-      final res = await http
-          .post(
-            Uri.parse(SCRIPT_URL),
-            headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({
-              'tanggal': t.tanggal,
-              'jam': t.jam,
-              'nominal': t.nominal,
-            }),
-          )
-          .timeout(const Duration(seconds: 20));
+      final url = Uri.parse('$SCRIPT_URL'
+          '?tanggal=${Uri.encodeComponent(t.tanggal)}'
+          '&jam=${Uri.encodeComponent(t.jam)}'
+          '&nominal=${t.nominal}');
+
+      final res = await http.get(url).timeout(const Duration(seconds: 20));
 
       if (res.statusCode == 200) {
-        final body = jsonDecode(res.body);
-        return body['status'] == 'ok';
+        try {
+          final body = jsonDecode(res.body);
+          return body['status'] == 'ok';
+        } catch (_) {
+          return false;
+        }
       }
       return false;
     } catch (e) {
@@ -137,9 +135,7 @@ class _KasirPageState extends State<KasirPage> {
   Future<void> _cobaSync(Transaksi t) async {
     final ok = await _kirimKeSheets(t);
     if (ok) {
-      if (mounted) {
-        setState(() => t.synced = true);
-      }
+      if (mounted) setState(() => t.synced = true);
       await _saveData();
     }
   }
@@ -206,7 +202,6 @@ class _KasirPageState extends State<KasirPage> {
           nominal: nominal);
       setState(() => transaksi.add(baru));
       await _saveData();
-      // Sync otomatis di background (tidak block UI)
       _cobaSync(baru);
     }
   }
@@ -244,7 +239,7 @@ class _KasirPageState extends State<KasirPage> {
       if (baru != null && baru > 0) {
         setState(() {
           t.nominal = baru;
-          t.synced = false; // perlu sync ulang
+          t.synced = false;
         });
         await _saveData();
       }
@@ -401,7 +396,6 @@ class _KasirPageState extends State<KasirPage> {
               Text('Total hari ini: Rp ${_rp(total)}',
                   style: const TextStyle(fontSize: 22, color: Color(0xFFA6E3A1))),
 
-              // Status sync
               const SizedBox(height: 4),
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -428,7 +422,6 @@ class _KasirPageState extends State<KasirPage> {
                 ],
               ),
 
-              // Tombol SYNC manual
               if (belumSync > 0)
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
