@@ -71,7 +71,18 @@ class _KasirPageState extends State<KasirPage> {
   List<Transaksi> transaksi = [];
   int nextId = 1;
   bool sedangSync = false;
-  final nominals = [5000, 10000, 15000, 20000, 25000, 30000, 35000, 40000, 45000, 50000];
+  final nominals = [
+    5000,
+    10000,
+    15000,
+    20000,
+    25000,
+    30000,
+    35000,
+    40000,
+    45000,
+    50000
+  ];
 
   @override
   void initState() {
@@ -95,8 +106,8 @@ class _KasirPageState extends State<KasirPage> {
 
   Future<void> _saveData() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('transaksi',
-        jsonEncode(transaksi.map((t) => t.toJson()).toList()));
+    await prefs.setString(
+        'transaksi', jsonEncode(transaksi.map((t) => t.toJson()).toList()));
   }
 
   String _tglStr(DateTime d) =>
@@ -107,34 +118,40 @@ class _KasirPageState extends State<KasirPage> {
       RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (m) => '${m[1]}.');
 
   // ============================================================
-  //   GOOGLE SHEETS SYNC (pakai GET — menghindari redirect issue)
+  //   GOOGLE SHEETS SYNC (GET) + DEBUG ERROR
   // ============================================================
-  Future<bool> _kirimKeSheets(Transaksi t) async {
+  Future<Map<String, dynamic>> _kirimKeSheets(Transaksi t) async {
     try {
-      final url = Uri.parse('$SCRIPT_URL'
-          '?tanggal=${Uri.encodeComponent(t.tanggal)}'
-          '&jam=${Uri.encodeComponent(t.jam)}'
-          '&nominal=${t.nominal}');
+      final url = Uri.parse(SCRIPT_URL).replace(queryParameters: {
+        'tanggal': t.tanggal,
+        'jam': t.jam,
+        'nominal': t.nominal.toString(),
+      });
 
       final res = await http.get(url).timeout(const Duration(seconds: 20));
+
+      String snippet = res.body.length > 200
+          ? '${res.body.substring(0, 200)}...'
+          : res.body;
 
       if (res.statusCode == 200) {
         try {
           final body = jsonDecode(res.body);
-          return body['status'] == 'ok';
+          if (body['status'] == 'ok') return {'ok': true};
+          return {'ok': false, 'err': 'server: ${body['message'] ?? '?'}'};
         } catch (_) {
-          return false;
+          return {'ok': false, 'err': 'parse: $snippet'};
         }
       }
-      return false;
+      return {'ok': false, 'err': 'http-${res.statusCode}: $snippet'};
     } catch (e) {
-      return false;
+      return {'ok': false, 'err': 'err: $e'};
     }
   }
 
   Future<void> _cobaSync(Transaksi t) async {
-    final ok = await _kirimKeSheets(t);
-    if (ok) {
+    final result = await _kirimKeSheets(t);
+    if (result['ok'] == true) {
       if (mounted) setState(() => t.synced = true);
       await _saveData();
     }
@@ -153,20 +170,26 @@ class _KasirPageState extends State<KasirPage> {
 
     setState(() => sedangSync = true);
     int sukses = 0;
+    String errMsg = '';
     for (final t in pending) {
-      final ok = await _kirimKeSheets(t);
-      if (ok) {
+      final result = await _kirimKeSheets(t);
+      if (result['ok'] == true) {
         t.synced = true;
         sukses++;
+      } else {
+        if (errMsg.isEmpty) errMsg = result['err'] ?? 'unknown';
       }
     }
     await _saveData();
     if (mounted) {
       setState(() => sedangSync = false);
-      if (!silent || sukses > 0) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Sync selesai: $sukses dari ${pending.length} data')));
-      }
+      final pesan = sukses > 0
+          ? 'Sync: $sukses/${pending.length} data berhasil'
+          : 'Gagal: $errMsg';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(pesan),
+        duration: const Duration(seconds: 10),
+      ));
     }
   }
 
@@ -186,7 +209,8 @@ class _KasirPageState extends State<KasirPage> {
               onPressed: () => Navigator.pop(ctx, false),
               child: const Text('BATAL')),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFA6E3A1)),
+            style:
+                ElevatedButton.styleFrom(backgroundColor: const Color(0xFFA6E3A1)),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('SIMPAN', style: TextStyle(color: Colors.black)),
           ),
@@ -227,7 +251,8 @@ class _KasirPageState extends State<KasirPage> {
               onPressed: () => Navigator.pop(ctx, false),
               child: const Text('BATAL')),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFA6E3A1)),
+            style:
+                ElevatedButton.styleFrom(backgroundColor: const Color(0xFFA6E3A1)),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('SIMPAN', style: TextStyle(color: Colors.black)),
           ),
@@ -257,7 +282,8 @@ class _KasirPageState extends State<KasirPage> {
               onPressed: () => Navigator.pop(ctx, false),
               child: const Text('BATAL')),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFF38BA8)),
+            style:
+                ElevatedButton.styleFrom(backgroundColor: const Color(0xFFF38BA8)),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('HAPUS', style: TextStyle(color: Colors.black)),
           ),
@@ -290,16 +316,20 @@ class _KasirPageState extends State<KasirPage> {
               onPressed: () => Navigator.pop(ctx, 'cancel'),
               child: const Text('BATAL')),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF89B4FA)),
+            style:
+                ElevatedButton.styleFrom(backgroundColor: const Color(0xFF89B4FA)),
             onPressed: () => Navigator.pop(ctx, 'hari-ini'),
             child: const Text('HARI INI',
-                style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                style:
+                    TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFA6E3A1)),
+            style:
+                ElevatedButton.styleFrom(backgroundColor: const Color(0xFFA6E3A1)),
             onPressed: () => Navigator.pop(ctx, 'rentang'),
             child: const Text('PILIH TANGGAL',
-                style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                style:
+                    TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -344,13 +374,14 @@ class _KasirPageState extends State<KasirPage> {
     }
 
     final filtered = transaksi
-        .where((t) => t.tanggal.compareTo(tgl1) >= 0 && t.tanggal.compareTo(tgl2) <= 0)
+        .where((t) =>
+            t.tanggal.compareTo(tgl1) >= 0 && t.tanggal.compareTo(tgl2) <= 0)
         .toList();
 
     if (filtered.isEmpty) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Tidak ada transaksi dari $tgl1 sampai $tgl2')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Tidak ada transaksi dari $tgl1 sampai $tgl2')));
       }
       return;
     }
@@ -394,8 +425,8 @@ class _KasirPageState extends State<KasirPage> {
                   style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
               Text('Total hari ini: Rp ${_rp(total)}',
-                  style: const TextStyle(fontSize: 22, color: Color(0xFFA6E3A1))),
-
+                  style:
+                      const TextStyle(fontSize: 22, color: Color(0xFFA6E3A1))),
               const SizedBox(height: 4),
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -421,7 +452,6 @@ class _KasirPageState extends State<KasirPage> {
                   ),
                 ],
               ),
-
               if (belumSync > 0)
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
@@ -448,7 +478,6 @@ class _KasirPageState extends State<KasirPage> {
                     ),
                   ),
                 ),
-
               const SizedBox(height: 16),
               GridView.count(
                 crossAxisCount: 2,
@@ -482,8 +511,8 @@ class _KasirPageState extends State<KasirPage> {
               else
                 ...riwayat.asMap().entries.map((e) => Container(
                       margin: const EdgeInsets.only(bottom: 6),
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(
                           color: const Color(0xFF313244),
                           borderRadius: BorderRadius.circular(8)),
@@ -502,10 +531,12 @@ class _KasirPageState extends State<KasirPage> {
                                   '${e.key + 1}. ${e.value.jam}  —  Rp ${_rp(e.value.nominal)}',
                                   style: const TextStyle(color: Colors.white))),
                           IconButton(
-                              icon: const Icon(Icons.edit, color: Color(0xFF89B4FA)),
+                              icon: const Icon(Icons.edit,
+                                  color: Color(0xFF89B4FA)),
                               onPressed: () => _editTransaksi(e.value)),
                           IconButton(
-                              icon: const Icon(Icons.delete, color: Color(0xFFF38BA8)),
+                              icon: const Icon(Icons.delete,
+                                  color: Color(0xFFF38BA8)),
                               onPressed: () => _hapusTransaksi(e.value)),
                         ],
                       ),
