@@ -4,6 +4,13 @@ import 'package:share_plus/share_plus.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
+import 'package:http/http.dart' as http;
+
+// ============================================================
+//  GANTI URL DI BAWAH INI dengan URL Apps Script kamu
+// ============================================================
+const String SCRIPT_URL =
+    'https://script.google.com/macros/s/AKfycbxelmoFg9Y4PiwFGa1e8tQYy7yAPmKetUUKzpBiy80VHOhzOXEP5vRPo7VxExDLyxIQ/exec';
 
 void main() {
   runApp(const KasirApp());
@@ -30,10 +37,28 @@ class Transaksi {
   final String tanggal;
   final String jam;
   int nominal;
-  Transaksi({required this.id, required this.tanggal, required this.jam, required this.nominal});
-  Map<String, dynamic> toJson() => {'id': id, 'tanggal': tanggal, 'jam': jam, 'nominal': nominal};
+  bool synced;
+  Transaksi({
+    required this.id,
+    required this.tanggal,
+    required this.jam,
+    required this.nominal,
+    this.synced = false,
+  });
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'tanggal': tanggal,
+        'jam': jam,
+        'nominal': nominal,
+        'synced': synced,
+      };
   factory Transaksi.fromJson(Map<String, dynamic> m) => Transaksi(
-    id: m['id'], tanggal: m['tanggal'], jam: m['jam'], nominal: m['nominal']);
+        id: m['id'],
+        tanggal: m['tanggal'],
+        jam: m['jam'],
+        nominal: m['nominal'],
+        synced: m['synced'] ?? false,
+      );
 }
 
 class KasirPage extends StatefulWidget {
@@ -45,6 +70,7 @@ class KasirPage extends StatefulWidget {
 class _KasirPageState extends State<KasirPage> {
   List<Transaksi> transaksi = [];
   int nextId = 1;
+  bool sedangSync = false;
   final nominals = [5000, 10000, 15000, 20000, 25000, 30000, 35000, 40000, 45000, 50000];
 
   @override
@@ -64,6 +90,8 @@ class _KasirPageState extends State<KasirPage> {
       }
     }
     setState(() {});
+    // Coba sync otomatis saat app dibuka
+    _syncSemua(silent: true);
   }
 
   Future<void> _saveData() async {
@@ -79,6 +107,78 @@ class _KasirPageState extends State<KasirPage> {
   String _rp(int n) => n.toString().replaceAllMapped(
       RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (m) => '${m[1]}.');
 
+  // ============================================================
+  //   GOOGLE SHEETS SYNC
+  // ============================================================
+  Future<bool> _kirimKeSheets(Transaksi t) async {
+    try {
+      final res = await http
+          .post(
+            Uri.parse(SCRIPT_URL),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'tanggal': t.tanggal,
+              'jam': t.jam,
+              'nominal': t.nominal,
+            }),
+          )
+          .timeout(const Duration(seconds: 20));
+
+      if (res.statusCode == 200) {
+        final body = jsonDecode(res.body);
+        return body['status'] == 'ok';
+      }
+      return false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  Future<void> _cobaSync(Transaksi t) async {
+    final ok = await _kirimKeSheets(t);
+    if (ok) {
+      if (mounted) {
+        setState(() => t.synced = true);
+      }
+      await _saveData();
+    }
+  }
+
+  Future<void> _syncSemua({bool silent = false}) async {
+    if (sedangSync) return;
+    final pending = transaksi.where((t) => !t.synced).toList();
+    if (pending.isEmpty) {
+      if (!silent && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('✓ Semua data sudah tersinkron')));
+      }
+      return;
+    }
+
+    setState(() => sedangSync = true);
+    int sukses = 0;
+    for (final t in pending) {
+      final ok = await _kirimKeSheets(t);
+      if (ok) {
+        t.synced = true;
+        sukses++;
+      }
+    }
+    await _saveData();
+    if (mounted) {
+      setState(() => sedangSync = false);
+      if (!silent || sukses > 0) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Sync selesai: $sukses dari ${pending.length} data')));
+      }
+    }
+  }
+
+  int get _jumlahBelumSync => transaksi.where((t) => !t.synced).length;
+
+  // ============================================================
+  //   CRUD TRANSAKSI
+  // ============================================================
   Future<void> _konfirmasiNominal(int nominal) async {
     final ok = await showDialog<bool>(
       context: context,
@@ -99,11 +199,15 @@ class _KasirPageState extends State<KasirPage> {
     );
     if (ok == true) {
       final now = DateTime.now();
-      setState(() {
-        transaksi.add(Transaksi(
-            id: nextId++, tanggal: _tglStr(now), jam: _jamStr(now), nominal: nominal));
-      });
+      final baru = Transaksi(
+          id: nextId++,
+          tanggal: _tglStr(now),
+          jam: _jamStr(now),
+          nominal: nominal);
+      setState(() => transaksi.add(baru));
       await _saveData();
+      // Sync otomatis di background (tidak block UI)
+      _cobaSync(baru);
     }
   }
 
@@ -138,7 +242,10 @@ class _KasirPageState extends State<KasirPage> {
     if (ok == true) {
       final baru = int.tryParse(controller.text);
       if (baru != null && baru > 0) {
-        setState(() => t.nominal = baru);
+        setState(() {
+          t.nominal = baru;
+          t.synced = false; // perlu sync ulang
+        });
         await _saveData();
       }
     }
@@ -168,27 +275,119 @@ class _KasirPageState extends State<KasirPage> {
     }
   }
 
+  // ============================================================
+  //   EXPORT CSV
+  // ============================================================
   Future<void> _exportCsv() async {
     if (transaksi.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Belum ada transaksi')));
       return;
     }
+
+    final pilihan = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Export CSV'),
+        content: const Text('Pilih periode yang mau di-export:'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, 'cancel'),
+              child: const Text('BATAL')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF89B4FA)),
+            onPressed: () => Navigator.pop(ctx, 'hari-ini'),
+            child: const Text('HARI INI',
+                style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFA6E3A1)),
+            onPressed: () => Navigator.pop(ctx, 'rentang'),
+            child: const Text('PILIH TANGGAL',
+                style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (pilihan == null || pilihan == 'cancel') return;
+
+    String tgl1, tgl2;
+
+    if (pilihan == 'hari-ini') {
+      tgl1 = _tglStr(DateTime.now());
+      tgl2 = tgl1;
+    } else {
+      final picked = await showDateRangePicker(
+        context: context,
+        firstDate: DateTime(2020),
+        lastDate: DateTime(2100),
+        initialDateRange: DateTimeRange(
+          start: DateTime.now().subtract(const Duration(days: 7)),
+          end: DateTime.now(),
+        ),
+        helpText: 'PILIH RENTANG TANGGAL',
+        saveText: 'PILIH',
+        cancelText: 'BATAL',
+        builder: (context, child) {
+          return Theme(
+            data: ThemeData.dark().copyWith(
+              colorScheme: const ColorScheme.dark(
+                primary: Color(0xFF89B4FA),
+                onPrimary: Colors.black,
+                surface: Color(0xFF1E1E2E),
+                onSurface: Colors.white,
+              ),
+            ),
+            child: child!,
+          );
+        },
+      );
+      if (picked == null) return;
+      tgl1 = _tglStr(picked.start);
+      tgl2 = _tglStr(picked.end);
+    }
+
+    final filtered = transaksi
+        .where((t) => t.tanggal.compareTo(tgl1) >= 0 && t.tanggal.compareTo(tgl2) <= 0)
+        .toList();
+
+    if (filtered.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Tidak ada transaksi dari $tgl1 sampai $tgl2')));
+      }
+      return;
+    }
+
     final buffer = StringBuffer('No,Tanggal,Jam,Nominal\n');
-    for (int i = 0; i < transaksi.length; i++) {
-      final t = transaksi[i];
+    for (int i = 0; i < filtered.length; i++) {
+      final t = filtered[i];
       buffer.writeln('${i + 1},${t.tanggal},${t.jam},${t.nominal}');
     }
+    final total = filtered.fold<int>(0, (sum, t) => sum + t.nominal);
+    buffer.writeln('');
+    buffer.writeln('Total,,,$total');
+
+    final namaFile = (tgl1 == tgl2)
+        ? 'laporan_$tgl1.csv'
+        : 'laporan_${tgl1}_sd_$tgl2.csv';
+
     final dir = await getTemporaryDirectory();
-    final file = File('${dir.path}/laporan_kasir_${_tglStr(DateTime.now())}.csv');
+    final file = File('${dir.path}/$namaFile');
     await file.writeAsString(buffer.toString());
-    await Share.shareXFiles([XFile(file.path)], text: 'Laporan Kasir');
+    await Share.shareXFiles([XFile(file.path)],
+        text: 'Laporan Kasir ($tgl1${tgl1 == tgl2 ? '' : ' s/d $tgl2'})');
   }
 
+  // ============================================================
+  //   UI
+  // ============================================================
   @override
   Widget build(BuildContext context) {
     final riwayat = _riwayatHariIni();
     final total = riwayat.fold<int>(0, (sum, t) => sum + t.nominal);
+    final belumSync = _jumlahBelumSync;
 
     return Scaffold(
       body: SafeArea(
@@ -201,6 +400,62 @@ class _KasirPageState extends State<KasirPage> {
               const SizedBox(height: 8),
               Text('Total hari ini: Rp ${_rp(total)}',
                   style: const TextStyle(fontSize: 22, color: Color(0xFFA6E3A1))),
+
+              // Status sync
+              const SizedBox(height: 4),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    belumSync == 0 ? Icons.cloud_done : Icons.cloud_off,
+                    color: belumSync == 0
+                        ? const Color(0xFFA6E3A1)
+                        : const Color(0xFFF9E2AF),
+                    size: 16,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    belumSync == 0
+                        ? 'Semua tersinkron ke Sheets'
+                        : '$belumSync data belum tersinkron',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: belumSync == 0
+                          ? const Color(0xFFA6E3A1)
+                          : const Color(0xFFF9E2AF),
+                    ),
+                  ),
+                ],
+              ),
+
+              // Tombol SYNC manual
+              if (belumSync > 0)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFF9E2AF),
+                        padding: const EdgeInsets.all(10),
+                      ),
+                      onPressed: sedangSync ? null : () => _syncSemua(),
+                      icon: sedangSync
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: Colors.black))
+                          : const Icon(Icons.sync, color: Colors.black),
+                      label: Text(
+                        sedangSync ? 'SEDANG SYNC...' : 'SYNC SEKARANG',
+                        style: const TextStyle(
+                            color: Colors.black, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                ),
+
               const SizedBox(height: 16),
               GridView.count(
                 crossAxisCount: 2,
@@ -241,6 +496,14 @@ class _KasirPageState extends State<KasirPage> {
                           borderRadius: BorderRadius.circular(8)),
                       child: Row(
                         children: [
+                          Icon(
+                            e.value.synced ? Icons.cloud_done : Icons.cloud_off,
+                            color: e.value.synced
+                                ? const Color(0xFFA6E3A1)
+                                : const Color(0xFFF9E2AF),
+                            size: 16,
+                          ),
+                          const SizedBox(width: 8),
                           Expanded(
                               child: Text(
                                   '${e.key + 1}. ${e.value.jam}  —  Rp ${_rp(e.value.nominal)}',
