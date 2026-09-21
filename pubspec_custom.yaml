@@ -1,0 +1,17 @@
+name: kasir_app
+description: Aplikasi kasir sederhana
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  shared_preferences: ^2.2.2
+  share_plus: ^10.0.2
+  path_provider: ^2.1.4
+
+flutter:
+  uses-material-design: true
