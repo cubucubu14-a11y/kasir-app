@@ -70,8 +70,16 @@ class _KasirPageState extends State<KasirPage> {
   int nextId = 1;
   bool sedangSync = false;
   final nominals = [
-    5000, 10000, 15000, 20000, 25000,
-    30000, 35000, 40000, 45000, 50000
+    5000,
+    10000,
+    15000,
+    20000,
+    25000,
+    30000,
+    35000,
+    40000,
+    45000,
+    50000
   ];
 
   @override
@@ -113,13 +121,11 @@ class _KasirPageState extends State<KasirPage> {
   String _rp(int n) => n.toString().replaceAllMapped(
       RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (m) => '${m[1]}.');
 
-  // Retry helper: coba sampai 3x
   Future<http.Response> _getWithRetry(Uri url) async {
     Exception? lastErr;
     for (int i = 0; i < 3; i++) {
       try {
-        final res =
-            await http.get(url).timeout(const Duration(seconds: 30));
+        final res = await http.get(url).timeout(const Duration(seconds: 30));
         return res;
       } catch (e) {
         lastErr = e as Exception;
@@ -192,7 +198,7 @@ class _KasirPageState extends State<KasirPage> {
     if (pendingTrans.isEmpty && pendingDeletes.isEmpty) {
       if (!silent && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('✓ Semua data sudah tersinkron')));
+            const SnackBar(content: Text('Semua data sudah tersinkron')));
       }
       return;
     }
@@ -605,4 +611,57 @@ class _KasirPageState extends State<KasirPage> {
                       margin: const EdgeInsets.only(bottom: 6),
                       padding: const EdgeInsets.symmetric(
                           horizontal: 10, vertical: 4),
-                      decoration: BoxDecora
+                      decoration: BoxDecoration(
+                          color: const Color(0xFF313244),
+                          borderRadius: BorderRadius.circular(8)),
+                      child: Row(
+                        children: [
+                          Icon(
+                            e.value.synced
+                                ? Icons.cloud_done
+                                : Icons.cloud_off,
+                            color: e.value.synced
+                                ? const Color(0xFFA6E3A1)
+                                : const Color(0xFFF9E2AF),
+                            size: 16,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                              child: Text(
+                                  '${e.key + 1}. ${e.value.jam}  —  Rp ${_rp(e.value.nominal)}',
+                                  style: const TextStyle(
+                                      color: Colors.white))),
+                          IconButton(
+                              icon: const Icon(Icons.edit,
+                                  color: Color(0xFF89B4FA)),
+                              onPressed: () => _editTransaksi(e.value)),
+                          IconButton(
+                              icon: const Icon(Icons.delete,
+                                  color: Color(0xFFF38BA8)),
+                              onPressed: () => _hapusTransaksi(e.value)),
+                        ],
+                      ),
+                    )),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFA6E3A1),
+                      padding: const EdgeInsets.all(16)),
+                  onPressed: _exportCsv,
+                  icon: const Icon(Icons.download, color: Colors.black),
+                  label: const Text('EXPORT KE CSV',
+                      style: TextStyle(
+                          color: Colors.black,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
