@@ -113,6 +113,22 @@ class _KasirPageState extends State<KasirPage> {
   String _rp(int n) => n.toString().replaceAllMapped(
       RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (m) => '${m[1]}.');
 
+  // Retry helper: coba sampai 3x
+  Future<http.Response> _getWithRetry(Uri url) async {
+    Exception? lastErr;
+    for (int i = 0; i < 3; i++) {
+      try {
+        final res =
+            await http.get(url).timeout(const Duration(seconds: 30));
+        return res;
+      } catch (e) {
+        lastErr = e as Exception;
+        await Future.delayed(Duration(milliseconds: 800 * (i + 1)));
+      }
+    }
+    throw lastErr ?? Exception('unknown');
+  }
+
   Future<Map<String, dynamic>> _kirimUpsert(Transaksi t) async {
     try {
       final url = Uri.parse(SCRIPT_URL).replace(queryParameters: {
@@ -122,7 +138,7 @@ class _KasirPageState extends State<KasirPage> {
         'jam': t.jam,
         'nominal': t.nominal.toString(),
       });
-      final res = await http.get(url).timeout(const Duration(seconds: 20));
+      final res = await _getWithRetry(url);
       if (res.statusCode == 200) {
         try {
           final body = jsonDecode(res.body);
@@ -144,7 +160,7 @@ class _KasirPageState extends State<KasirPage> {
         'action': 'delete',
         'id': id.toString(),
       });
-      final res = await http.get(url).timeout(const Duration(seconds: 20));
+      final res = await _getWithRetry(url);
       if (res.statusCode == 200) {
         try {
           final body = jsonDecode(res.body);
@@ -195,6 +211,7 @@ class _KasirPageState extends State<KasirPage> {
         sisaDeletes.add(id);
         if (errMsg.isEmpty) errMsg = r['err'] ?? 'unknown';
       }
+      await Future.delayed(const Duration(milliseconds: 200));
     }
 
     for (final t in pendingTrans) {
@@ -205,6 +222,7 @@ class _KasirPageState extends State<KasirPage> {
       } else {
         if (errMsg.isEmpty) errMsg = r['err'] ?? 'unknown';
       }
+      await Future.delayed(const Duration(milliseconds: 200));
     }
 
     deletedIds = sisaDeletes;
@@ -220,6 +238,43 @@ class _KasirPageState extends State<KasirPage> {
         duration: const Duration(seconds: 8),
       ));
     }
+  }
+
+  Future<void> _resetDanSyncUlang() async {
+    final konfirmasi = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reset & Sync Ulang'),
+        content: const Text(
+            'Semua data akan dikirim ulang ke Sheets.\n\n'
+            'Kosongkan Sheet dulu (hapus semua baris data, sisakan header saja), '
+            'lalu tap LANJUT.\n\n'
+            'Lanjutkan?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('BATAL')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFF9E2AF)),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('LANJUT',
+                style: TextStyle(
+                    color: Colors.black, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+    if (konfirmasi != true) return;
+
+    setState(() {
+      for (final t in transaksi) {
+        t.synced = false;
+      }
+      deletedIds = [];
+    });
+    await _saveData();
+    _syncSemua();
   }
 
   int get _jumlahBelumSync =>
@@ -480,6 +535,12 @@ class _KasirPageState extends State<KasirPage> {
                           : const Color(0xFFF9E2AF),
                     ),
                   ),
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: _resetDanSyncUlang,
+                    child: const Icon(Icons.refresh,
+                        size: 18, color: Color(0xFF89B4FA)),
+                  ),
                 ],
               ),
               if (belumSync > 0)
@@ -544,57 +605,4 @@ class _KasirPageState extends State<KasirPage> {
                       margin: const EdgeInsets.only(bottom: 6),
                       padding: const EdgeInsets.symmetric(
                           horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                          color: const Color(0xFF313244),
-                          borderRadius: BorderRadius.circular(8)),
-                      child: Row(
-                        children: [
-                          Icon(
-                            e.value.synced
-                                ? Icons.cloud_done
-                                : Icons.cloud_off,
-                            color: e.value.synced
-                                ? const Color(0xFFA6E3A1)
-                                : const Color(0xFFF9E2AF),
-                            size: 16,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                              child: Text(
-                                  '${e.key + 1}. ${e.value.jam}  —  Rp ${_rp(e.value.nominal)}',
-                                  style: const TextStyle(
-                                      color: Colors.white))),
-                          IconButton(
-                              icon: const Icon(Icons.edit,
-                                  color: Color(0xFF89B4FA)),
-                              onPressed: () => _editTransaksi(e.value)),
-                          IconButton(
-                              icon: const Icon(Icons.delete,
-                                  color: Color(0xFFF38BA8)),
-                              onPressed: () => _hapusTransaksi(e.value)),
-                        ],
-                      ),
-                    )),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFA6E3A1),
-                      padding: const EdgeInsets.all(16)),
-                  onPressed: _exportCsv,
-                  icon: const Icon(Icons.download, color: Colors.black),
-                  label: const Text('EXPORT KE CSV',
-                      style: TextStyle(
-                          color: Colors.black,
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold)),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
+                      decoration: BoxDecora
