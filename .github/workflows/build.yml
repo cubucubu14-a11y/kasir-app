@@ -33,6 +33,13 @@ jobs:
       - name: Copy main.dart
         run: cp main.dart lib/main.dart
 
+      - name: Update Kotlin ke 1.9.22
+        run: |
+          sed -i 's/id "org.jetbrains.kotlin.android" version "[^"]*"/id "org.jetbrains.kotlin.android" version "1.9.22"/' android/settings.gradle
+          sed -i "s/ext.kotlin_version = .*/ext.kotlin_version = '1.9.22'/" android/build.gradle || true
+          echo "=== isi settings.gradle ==="
+          cat android/settings.gradle
+
       - name: Install dependencies
         run: flutter pub get
 
