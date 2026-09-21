@@ -6,9 +6,6 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
 
-// ============================================================
-//  URL Apps Script kamu
-// ============================================================
 const String SCRIPT_URL =
     'https://script.google.com/macros/s/AKfycbwFep4Th6FMZ-uob8fiSjUKsBTU2boX-iK1i2gDlgKJT0E2dX4wxD0m5teRx-9dfS6g/exec';
 
@@ -34,8 +31,8 @@ class KasirApp extends StatelessWidget {
 
 class Transaksi {
   final int id;
-  final String tanggal;
-  final String jam;
+  String tanggal;
+  String jam;
   int nominal;
   bool synced;
   Transaksi({
@@ -69,19 +66,12 @@ class KasirPage extends StatefulWidget {
 
 class _KasirPageState extends State<KasirPage> {
   List<Transaksi> transaksi = [];
+  List<int> deletedIds = [];
   int nextId = 1;
   bool sedangSync = false;
   final nominals = [
-    5000,
-    10000,
-    15000,
-    20000,
-    25000,
-    30000,
-    35000,
-    40000,
-    45000,
-    50000
+    5000, 10000, 15000, 20000, 25000,
+    30000, 35000, 40000, 45000, 50000
   ];
 
   @override
@@ -100,6 +90,11 @@ class _KasirPageState extends State<KasirPage> {
         if (t.id >= nextId) nextId = t.id + 1;
       }
     }
+    final delData = prefs.getString('deletedIds');
+    if (delData != null) {
+      final list = jsonDecode(delData) as List;
+      deletedIds = list.map((e) => e as int).toList();
+    }
     setState(() {});
     _syncSemua(silent: true);
   }
@@ -108,6 +103,7 @@ class _KasirPageState extends State<KasirPage> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
         'transaksi', jsonEncode(transaksi.map((t) => t.toJson()).toList()));
+    await prefs.setString('deletedIds', jsonEncode(deletedIds));
   }
 
   String _tglStr(DateTime d) =>
@@ -117,40 +113,55 @@ class _KasirPageState extends State<KasirPage> {
   String _rp(int n) => n.toString().replaceAllMapped(
       RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (m) => '${m[1]}.');
 
-  // ============================================================
-  //   GOOGLE SHEETS SYNC (GET) + DEBUG ERROR
-  // ============================================================
-  Future<Map<String, dynamic>> _kirimKeSheets(Transaksi t) async {
+  Future<Map<String, dynamic>> _kirimUpsert(Transaksi t) async {
     try {
       final url = Uri.parse(SCRIPT_URL).replace(queryParameters: {
+        'action': 'upsert',
+        'id': t.id.toString(),
         'tanggal': t.tanggal,
         'jam': t.jam,
         'nominal': t.nominal.toString(),
       });
-
       final res = await http.get(url).timeout(const Duration(seconds: 20));
-
-      String snippet = res.body.length > 200
-          ? '${res.body.substring(0, 200)}...'
-          : res.body;
-
       if (res.statusCode == 200) {
         try {
           final body = jsonDecode(res.body);
           if (body['status'] == 'ok') return {'ok': true};
           return {'ok': false, 'err': 'server: ${body['message'] ?? '?'}'};
         } catch (_) {
-          return {'ok': false, 'err': 'parse: $snippet'};
+          return {'ok': false, 'err': 'parse'};
         }
       }
-      return {'ok': false, 'err': 'http-${res.statusCode}: $snippet'};
+      return {'ok': false, 'err': 'http-${res.statusCode}'};
     } catch (e) {
-      return {'ok': false, 'err': 'err: $e'};
+      return {'ok': false, 'err': '$e'};
+    }
+  }
+
+  Future<Map<String, dynamic>> _kirimDelete(int id) async {
+    try {
+      final url = Uri.parse(SCRIPT_URL).replace(queryParameters: {
+        'action': 'delete',
+        'id': id.toString(),
+      });
+      final res = await http.get(url).timeout(const Duration(seconds: 20));
+      if (res.statusCode == 200) {
+        try {
+          final body = jsonDecode(res.body);
+          if (body['status'] == 'ok') return {'ok': true};
+          return {'ok': false, 'err': 'server: ${body['message'] ?? '?'}'};
+        } catch (_) {
+          return {'ok': false, 'err': 'parse'};
+        }
+      }
+      return {'ok': false, 'err': 'http-${res.statusCode}'};
+    } catch (e) {
+      return {'ok': false, 'err': '$e'};
     }
   }
 
   Future<void> _cobaSync(Transaksi t) async {
-    final result = await _kirimKeSheets(t);
+    final result = await _kirimUpsert(t);
     if (result['ok'] == true) {
       if (mounted) setState(() => t.synced = true);
       await _saveData();
@@ -159,8 +170,10 @@ class _KasirPageState extends State<KasirPage> {
 
   Future<void> _syncSemua({bool silent = false}) async {
     if (sedangSync) return;
-    final pending = transaksi.where((t) => !t.synced).toList();
-    if (pending.isEmpty) {
+    final pendingTrans = transaksi.where((t) => !t.synced).toList();
+    final pendingDeletes = List<int>.from(deletedIds);
+
+    if (pendingTrans.isEmpty && pendingDeletes.isEmpty) {
       if (!silent && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('✓ Semua data sudah tersinkron')));
@@ -170,34 +183,48 @@ class _KasirPageState extends State<KasirPage> {
 
     setState(() => sedangSync = true);
     int sukses = 0;
+    final totalTugas = pendingTrans.length + pendingDeletes.length;
     String errMsg = '';
-    for (final t in pending) {
-      final result = await _kirimKeSheets(t);
-      if (result['ok'] == true) {
+
+    final sisaDeletes = <int>[];
+    for (final id in pendingDeletes) {
+      final r = await _kirimDelete(id);
+      if (r['ok'] == true) {
+        sukses++;
+      } else {
+        sisaDeletes.add(id);
+        if (errMsg.isEmpty) errMsg = r['err'] ?? 'unknown';
+      }
+    }
+
+    for (final t in pendingTrans) {
+      final r = await _kirimUpsert(t);
+      if (r['ok'] == true) {
         t.synced = true;
         sukses++;
       } else {
-        if (errMsg.isEmpty) errMsg = result['err'] ?? 'unknown';
+        if (errMsg.isEmpty) errMsg = r['err'] ?? 'unknown';
       }
     }
+
+    deletedIds = sisaDeletes;
     await _saveData();
+
     if (mounted) {
       setState(() => sedangSync = false);
       final pesan = sukses > 0
-          ? 'Sync: $sukses/${pending.length} data berhasil'
+          ? 'Sync: $sukses/$totalTugas tugas berhasil'
           : 'Gagal: $errMsg';
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(pesan),
-        duration: const Duration(seconds: 10),
+        duration: const Duration(seconds: 8),
       ));
     }
   }
 
-  int get _jumlahBelumSync => transaksi.where((t) => !t.synced).length;
+  int get _jumlahBelumSync =>
+      transaksi.where((t) => !t.synced).length + deletedIds.length;
 
-  // ============================================================
-  //   CRUD TRANSAKSI
-  // ============================================================
   Future<void> _konfirmasiNominal(int nominal) async {
     final ok = await showDialog<bool>(
       context: context,
@@ -209,10 +236,11 @@ class _KasirPageState extends State<KasirPage> {
               onPressed: () => Navigator.pop(ctx, false),
               child: const Text('BATAL')),
           ElevatedButton(
-            style:
-                ElevatedButton.styleFrom(backgroundColor: const Color(0xFFA6E3A1)),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFA6E3A1)),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('SIMPAN', style: TextStyle(color: Colors.black)),
+            child: const Text('SIMPAN',
+                style: TextStyle(color: Colors.black)),
           ),
         ],
       ),
@@ -251,10 +279,11 @@ class _KasirPageState extends State<KasirPage> {
               onPressed: () => Navigator.pop(ctx, false),
               child: const Text('BATAL')),
           ElevatedButton(
-            style:
-                ElevatedButton.styleFrom(backgroundColor: const Color(0xFFA6E3A1)),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFA6E3A1)),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('SIMPAN', style: TextStyle(color: Colors.black)),
+            child: const Text('SIMPAN',
+                style: TextStyle(color: Colors.black)),
           ),
         ],
       ),
@@ -267,6 +296,7 @@ class _KasirPageState extends State<KasirPage> {
           t.synced = false;
         });
         await _saveData();
+        _cobaSync(t);
       }
     }
   }
@@ -282,8 +312,8 @@ class _KasirPageState extends State<KasirPage> {
               onPressed: () => Navigator.pop(ctx, false),
               child: const Text('BATAL')),
           ElevatedButton(
-            style:
-                ElevatedButton.styleFrom(backgroundColor: const Color(0xFFF38BA8)),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFF38BA8)),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('HAPUS', style: TextStyle(color: Colors.black)),
           ),
@@ -291,14 +321,17 @@ class _KasirPageState extends State<KasirPage> {
       ),
     );
     if (ok == true) {
-      setState(() => transaksi.removeWhere((x) => x.id == t.id));
+      setState(() {
+        transaksi.removeWhere((x) => x.id == t.id);
+        if (t.synced) {
+          deletedIds.add(t.id);
+        }
+      });
       await _saveData();
+      _syncSemua(silent: true);
     }
   }
 
-  // ============================================================
-  //   EXPORT CSV
-  // ============================================================
   Future<void> _exportCsv() async {
     if (transaksi.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -316,20 +349,20 @@ class _KasirPageState extends State<KasirPage> {
               onPressed: () => Navigator.pop(ctx, 'cancel'),
               child: const Text('BATAL')),
           ElevatedButton(
-            style:
-                ElevatedButton.styleFrom(backgroundColor: const Color(0xFF89B4FA)),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF89B4FA)),
             onPressed: () => Navigator.pop(ctx, 'hari-ini'),
             child: const Text('HARI INI',
-                style:
-                    TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                style: TextStyle(
+                    color: Colors.black, fontWeight: FontWeight.bold)),
           ),
           ElevatedButton(
-            style:
-                ElevatedButton.styleFrom(backgroundColor: const Color(0xFFA6E3A1)),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFA6E3A1)),
             onPressed: () => Navigator.pop(ctx, 'rentang'),
             child: const Text('PILIH TANGGAL',
-                style:
-                    TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                style: TextStyle(
+                    color: Colors.black, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -406,9 +439,6 @@ class _KasirPageState extends State<KasirPage> {
         text: 'Laporan Kasir ($tgl1${tgl1 == tgl2 ? '' : ' s/d $tgl2'})');
   }
 
-  // ============================================================
-  //   UI
-  // ============================================================
   @override
   Widget build(BuildContext context) {
     final riwayat = _riwayatHariIni();
@@ -425,8 +455,8 @@ class _KasirPageState extends State<KasirPage> {
                   style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
               Text('Total hari ini: Rp ${_rp(total)}',
-                  style:
-                      const TextStyle(fontSize: 22, color: Color(0xFFA6E3A1))),
+                  style: const TextStyle(
+                      fontSize: 22, color: Color(0xFFA6E3A1))),
               const SizedBox(height: 4),
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -473,7 +503,8 @@ class _KasirPageState extends State<KasirPage> {
                       label: Text(
                         sedangSync ? 'SEDANG SYNC...' : 'SYNC SEKARANG',
                         style: const TextStyle(
-                            color: Colors.black, fontWeight: FontWeight.bold),
+                            color: Colors.black,
+                            fontWeight: FontWeight.bold),
                       ),
                     ),
                   ),
@@ -519,7 +550,9 @@ class _KasirPageState extends State<KasirPage> {
                       child: Row(
                         children: [
                           Icon(
-                            e.value.synced ? Icons.cloud_done : Icons.cloud_off,
+                            e.value.synced
+                                ? Icons.cloud_done
+                                : Icons.cloud_off,
                             color: e.value.synced
                                 ? const Color(0xFFA6E3A1)
                                 : const Color(0xFFF9E2AF),
@@ -529,7 +562,8 @@ class _KasirPageState extends State<KasirPage> {
                           Expanded(
                               child: Text(
                                   '${e.key + 1}. ${e.value.jam}  —  Rp ${_rp(e.value.nominal)}',
-                                  style: const TextStyle(color: Colors.white))),
+                                  style: const TextStyle(
+                                      color: Colors.white))),
                           IconButton(
                               icon: const Icon(Icons.edit,
                                   color: Color(0xFF89B4FA)),
