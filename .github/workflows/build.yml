@@ -14,14 +14,14 @@ jobs:
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
-          distribution: 'zulu'
+          distribution: zulu
           java-version: '17'
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.24.0'
-          channel: 'stable'
+          channel: stable
           cache: true
 
       - name: Buat project Flutter
@@ -45,6 +45,9 @@ jobs:
           sed -i 's/id "org.jetbrains.kotlin.android" version "[^"]*"/id "org.jetbrains.kotlin.android" version "1.9.22"/' android/settings.gradle
           sed -i "s/ext.kotlin_version = .*/ext.kotlin_version = '1.9.22'/" android/build.gradle || true
 
+      - name: Copy build.gradle template dengan signing
+        run: cp .github/build.gradle.template android/app/build.gradle
+
       - name: Decode keystore
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > android/app/kasir-key.jks
@@ -54,57 +57,10 @@ jobs:
           keyAlias=${{ secrets.KEY_ALIAS }}
           storeFile=kasir-key.jks
           EOF
-          echo "=== key.properties ==="
+          echo "key.properties dibuat"
           cat android/key.properties
-          echo "=== keystore ==="
+          echo "keystore:"
           ls -la android/app/kasir-key.jks
-
-      - name: Patch build.gradle dengan signing
-        run: |
-          python3 <<'PYEOF'
-          import re
-
-          path = 'android/app/build.gradle'
-          with open(path, 'r') as f:
-              content = f.read()
-
-          # 1. Tambah import & load keystore SETELAH plugins {} block
-          match = re.search(r'plugins\s*\{[^}]*\}', content)
-          if match and 'keystoreProperties' not in content:
-              end_pos = match.end()
-              load_code = '\n\ndef keystoreProperties = new Properties()\ndef keystorePropertiesFile = rootProject.file("key.properties")\nif (keystorePropertiesFile.exists()) {\n    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))\n}\n'
-              content = content[:end_pos] + load_code + content[end_pos:]
-              # Tambah import di paling atas
-              content = 'import java.util.Properties\nimport java.io.FileInputStream\n\n' + content
-
-          # 2. Cari lokasi 'android {' dan tambahkan signingConfigs setelah 'android {'
-          if 'signingConfigs' not in content:
-              # Cari block android { ... }
-              android_match = re.search(r'(android\s*\{)', content)
-              if android_match:
-                  insert_pos = android_match.end()
-                  signing_block = '''
-    signingConfigs {
-        release {
-            keyAlias keystoreProperties['keyAlias']
-            keyPassword keystoreProperties['keyPassword']
-            storeFile keystoreProperties['storeFile'] ? file(keystoreProperties['storeFile']) : null
-            storePassword keystoreProperties['storePassword']
-        }
-    }
-'''
-                  content = content[:insert_pos] + signing_block + content[insert_pos:]
-
-          # 3. Ganti signingConfigs.debug jadi signingConfigs.release
-          content = content.replace('signingConfig = signingConfigs.debug', 'signingConfig = signingConfigs.release')
-          content = content.replace('signingConfig signingConfigs.debug', 'signingConfig signingConfigs.release')
-
-          with open(path, 'w') as f:
-              f.write(content)
-
-          print('=== build.gradle FINAL ===')
-          print(content)
-          PYEOF
 
       - name: Install dependencies
         run: flutter pub get
@@ -112,22 +68,18 @@ jobs:
       - name: Build APK
         run: flutter build apk --release
 
-      - name: VERIFIKASI signing APK
+      - name: Verifikasi signing
         run: |
           APK=build/app/outputs/flutter-apk/app-release.apk
-          echo "=== Ukuran APK ==="
           ls -lh $APK
-          echo ""
           APKSIGNER=$(find $ANDROID_HOME/build-tools -name "apksigner" | head -1)
-          echo "apksigner: $APKSIGNER"
-          $APKSIGNER verify --print-certs $APK > cert_info.txt || true
-          cat cert_info.txt
-          echo ""
-          if grep -q "Android Debug" cert_info.txt; then
-            echo "❌ APK MASIH PAKAI DEBUG KEY"
+          $APKSIGNER verify --print-certs $APK > cert.txt || true
+          cat cert.txt
+          if grep -q "Android Debug" cert.txt; then
+            echo "APK MASIH PAKAI DEBUG KEY"
             exit 1
           else
-            echo "✅ APK sudah pakai keystore KITA"
+            echo "APK SUDAH PAKAI KEYSTORE KITA"
           fi
 
       - name: Upload APK
