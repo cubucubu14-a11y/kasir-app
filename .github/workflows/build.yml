@@ -56,53 +56,48 @@ jobs:
           EOF
           echo "=== key.properties ==="
           cat android/key.properties
-          echo "=== Cek file keystore ==="
+          echo "=== keystore ==="
           ls -la android/app/kasir-key.jks
 
       - name: Patch build.gradle dengan signing
         run: |
           python3 <<'PYEOF'
+          import re
           path = 'android/app/build.gradle'
           with open(path, 'r') as f:
               content = f.read()
 
-          # 1. Tambah import & load key.properties di atas
-          header = '''import java.util.Properties
-          import java.io.FileInputStream
+          # Cari akhir dari 'plugins { }' block, sisipkan load keystore setelahnya
+          match = re.search(r'plugins\s*\{[^}]*\}', content)
+          if match and 'keystoreProperties' not in content:
+              end_pos = match.end()
+              load_code = '''
 
           def keystoreProperties = new Properties()
-          def keystorePropertiesFile = rootProject.file("key.properties")
+          def keystorePropertiesFile = rootProject.file('key.properties')
           if (keystorePropertiesFile.exists()) {
               keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
           }
-
           '''
-          if 'keystoreProperties' not in content:
-              content = header + content
+              content = content[:end_pos] + load_code + content[end_pos:]
 
-          # 2. Tambah signingConfigs block di dalam android { }
+          # Sisipkan signingConfigs sebelum buildTypes
           signing_block = '''    signingConfigs {
-                  release {
-                      keyAlias keystoreProperties["keyAlias"]
-                      keyPassword keystoreProperties["keyPassword"]
-                      storeFile keystoreProperties["storeFile"] ? file(keystoreProperties["storeFile"]) : null
-                      storePassword keystoreProperties["storePassword"]
-                  }
+              release {
+                  keyAlias keystoreProperties['keyAlias']
+                  keyPassword keystoreProperties['keyPassword']
+                  storeFile keystoreProperties['storeFile'] ? file(keystoreProperties['storeFile']) : null
+                  storePassword keystoreProperties['storePassword']
               }
-
+          }
+          
               '''
           if 'signingConfigs' not in content:
-              content = content.replace('    buildTypes {', signing_block + '    buildTypes {', 1)
+              content = content.replace('buildTypes {', signing_block + 'buildTypes {', 1)
 
-          # 3. Ganti signingConfigs.debug jadi signingConfigs.release
-          content = content.replace(
-              'signingConfig = signingConfigs.debug',
-              'signingConfig = signingConfigs.release'
-          )
-          content = content.replace(
-              'signingConfig signingConfigs.debug',
-              'signingConfig signingConfigs.release'
-          )
+          # Ganti signingConfigs.debug jadi signingConfigs.release
+          content = content.replace('signingConfig = signingConfigs.debug', 'signingConfig = signingConfigs.release')
+          content = content.replace('signingConfig signingConfigs.debug', 'signingConfig signingConfigs.release')
 
           with open(path, 'w') as f:
               f.write(content)
@@ -123,21 +118,16 @@ jobs:
           echo "=== Ukuran APK ==="
           ls -lh $APK
           echo ""
-          echo "=== Cek signing APK ==="
-          # Extract certificate dan bandingkan
           APKSIGNER=$(find $ANDROID_HOME/build-tools -name "apksigner" | head -1)
           echo "apksigner: $APKSIGNER"
           $APKSIGNER verify --print-certs $APK > cert_info.txt || true
           cat cert_info.txt
-
           echo ""
-          echo "=== Cek apakah pakai Android Debug Key ==="
           if grep -q "Android Debug" cert_info.txt; then
-            echo "❌❌❌ APK MASIH PAKAI DEBUG KEY! ❌❌❌"
-            echo "Signing keystore GAGAL!"
+            echo "❌ APK MASIH PAKAI DEBUG KEY"
             exit 1
           else
-            echo "✅✅✅ APK sudah pakai keystore KITA! ✅✅✅"
+            echo "✅ APK sudah pakai keystore KITA"
           fi
 
       - name: Upload APK
