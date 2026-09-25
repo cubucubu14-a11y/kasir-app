@@ -45,7 +45,7 @@ jobs:
           sed -i 's/id "org.jetbrains.kotlin.android" version "[^"]*"/id "org.jetbrains.kotlin.android" version "1.9.22"/' android/settings.gradle
           sed -i "s/ext.kotlin_version = .*/ext.kotlin_version = '1.9.22'/" android/build.gradle || true
 
-      - name: Decode keystore dari Secrets
+      - name: Decode keystore
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > android/app/kasir-key.jks
           cat > android/key.properties <<EOF
@@ -54,55 +54,61 @@ jobs:
           keyAlias=${{ secrets.KEY_ALIAS }}
           storeFile=kasir-key.jks
           EOF
-          echo "=== key.properties dibuat ==="
+          echo "=== key.properties ==="
           cat android/key.properties
+          echo "=== Cek file keystore ==="
+          ls -la android/app/kasir-key.jks
 
-      - name: Setup signing di build.gradle
+      - name: Patch build.gradle dengan signing
         run: |
-          python3 - <<'PYEOF'
-          import re
+          python3 <<'PYEOF'
           path = 'android/app/build.gradle'
           with open(path, 'r') as f:
               content = f.read()
 
-          if 'import java.util.Properties' not in content:
-              content = 'import java.util.Properties\nimport java.io.FileInputStream\n\n' + content
+          # 1. Tambah import & load key.properties di atas
+          header = '''import java.util.Properties
+          import java.io.FileInputStream
 
-          load_code = '''
           def keystoreProperties = new Properties()
-          def keystorePropertiesFile = rootProject.file('key.properties')
+          def keystorePropertiesFile = rootProject.file("key.properties")
           if (keystorePropertiesFile.exists()) {
               keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
           }
 
           '''
           if 'keystoreProperties' not in content:
-              content = content.replace('android {', load_code + 'android {', 1)
+              content = header + content
 
-          signing_block = '''
-              signingConfigs {
+          # 2. Tambah signingConfigs block di dalam android { }
+          signing_block = '''    signingConfigs {
                   release {
-                      keyAlias keystoreProperties['keyAlias']
-                      keyPassword keystoreProperties['keyPassword']
-                      storeFile keystoreProperties['storeFile'] ? file(keystoreProperties['storeFile']) : null
-                      storePassword keystoreProperties['storePassword']
+                      keyAlias keystoreProperties["keyAlias"]
+                      keyPassword keystoreProperties["keyPassword"]
+                      storeFile keystoreProperties["storeFile"] ? file(keystoreProperties["storeFile"]) : null
+                      storePassword keystoreProperties["storePassword"]
                   }
               }
-          '''
-          if 'signingConfigs {' not in content:
-              content = content.replace('buildTypes {', signing_block + '\n    buildTypes {', 1)
 
-          if 'signingConfig signingConfigs.release' not in content:
-              content = re.sub(
-                  r'(buildTypes\s*\{[^}]*release\s*\{)',
-                  r'\1\n            signingConfig signingConfigs.release',
-                  content,
-                  count=1
-              )
+              '''
+          if 'signingConfigs' not in content:
+              content = content.replace('    buildTypes {', signing_block + '    buildTypes {', 1)
+
+          # 3. Ganti signingConfigs.debug jadi signingConfigs.release
+          content = content.replace(
+              'signingConfig = signingConfigs.debug',
+              'signingConfig = signingConfigs.release'
+          )
+          content = content.replace(
+              'signingConfig signingConfigs.debug',
+              'signingConfig signingConfigs.release'
+          )
 
           with open(path, 'w') as f:
               f.write(content)
-          print("=== build.gradle updated ===")
+
+          print('=== build.gradle FINAL ===')
+          print(content)
           PYEOF
 
       - name: Install dependencies
@@ -110,6 +116,29 @@ jobs:
 
       - name: Build APK
         run: flutter build apk --release
+
+      - name: VERIFIKASI signing APK
+        run: |
+          APK=build/app/outputs/flutter-apk/app-release.apk
+          echo "=== Ukuran APK ==="
+          ls -lh $APK
+          echo ""
+          echo "=== Cek signing APK ==="
+          # Extract certificate dan bandingkan
+          APKSIGNER=$(find $ANDROID_HOME/build-tools -name "apksigner" | head -1)
+          echo "apksigner: $APKSIGNER"
+          $APKSIGNER verify --print-certs $APK > cert_info.txt || true
+          cat cert_info.txt
+
+          echo ""
+          echo "=== Cek apakah pakai Android Debug Key ==="
+          if grep -q "Android Debug" cert_info.txt; then
+            echo "❌❌❌ APK MASIH PAKAI DEBUG KEY! ❌❌❌"
+            echo "Signing keystore GAGAL!"
+            exit 1
+          else
+            echo "✅✅✅ APK sudah pakai keystore KITA! ✅✅✅"
+          fi
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
