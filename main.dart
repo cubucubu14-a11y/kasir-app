@@ -168,6 +168,31 @@ class _KasirPageState extends State<KasirPage> {
         try {
           final body = jsonDecode(res.body);
           if (body['status'] == 'ok') return {'ok': true};
+          final msg = body['message'] ?? '?';
+          if (msg.toString().contains('tidak ditemukan')) {
+            return {'ok': true, 'notFound': true};
+          }
+          return {'ok': false, 'err': 'server: $msg'};
+        } catch (_) {
+          return {'ok': false, 'err': 'parse'};
+        }
+      }
+      return {'ok': false, 'err': 'http-${res.statusCode}'};
+    } catch (e) {
+      return {'ok': false, 'err': '$e'};
+    }
+  }
+
+  Future<Map<String, dynamic>> _kirimCleanup() async {
+    try {
+      final url = Uri.parse(SCRIPT_URL).replace(queryParameters: {
+        'action': 'cleanup',
+      });
+      final res = await _getWithTimeout(url);
+      if (res.statusCode == 200) {
+        try {
+          final body = jsonDecode(res.body);
+          if (body['status'] == 'ok') return {'ok': true};
           return {'ok': false, 'err': 'server: ${body['message'] ?? '?'}'};
         } catch (_) {
           return {'ok': false, 'err': 'parse'};
@@ -261,6 +286,75 @@ class _KasirPageState extends State<KasirPage> {
         duration: const Duration(seconds: 8),
       ));
     }
+  }
+
+  Future<void> _bersihkanSheetsDanSyncUlang() async {
+    final konfirmasi = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Bersihkan & Sync Ulang'),
+        content: const Text(
+            'INI AKAN MENGHAPUS SEMUA DATA DI SHEETS,\n'
+            'lalu mengirim ulang semua data dari HP ini.\n\n'
+            'Gunakan ini kalau ada selisih antara HP dan Sheets.\n\n'
+            'Data di HP tetap aman.\n\n'
+            'Lanjutkan?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('BATAL')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFF38BA8)),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('BERSIHKAN',
+                style: TextStyle(
+                    color: Colors.black, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+    if (konfirmasi != true) return;
+
+    setState(() {
+      sedangSync = true;
+      progressSync = 'Bersihkan Sheets...';
+    });
+
+    final hasil = await _kirimCleanup();
+
+    if (hasil['ok'] != true) {
+      if (mounted) {
+        setState(() {
+          sedangSync = false;
+          progressSync = '';
+        });
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Gagal bersihkan Sheets: ${hasil['err']}'),
+          duration: const Duration(seconds: 8),
+        ));
+      }
+      return;
+    }
+
+    setState(() {
+      for (final t in transaksi) {
+        t.synced = false;
+      }
+      deletedIds = [];
+      sedangSync = false;
+      progressSync = '';
+    });
+    await _saveData();
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Sheets dibersihkan. Mulai sync ulang...'),
+        duration: Duration(seconds: 3),
+      ));
+    }
+
+    _syncSemua();
   }
 
   int get _jumlahBelumSync =>
@@ -838,6 +932,24 @@ class _KasirPageState extends State<KasirPage> {
                       style: TextStyle(
                           color: Colors.black,
                           fontSize: 16,
+                          fontWeight: FontWeight.bold)),
+                ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFF38BA8),
+                      padding: const EdgeInsets.all(14)),
+                  onPressed:
+                      sedangSync ? null : _bersihkanSheetsDanSyncUlang,
+                  icon: const Icon(Icons.cleaning_services,
+                      color: Colors.black),
+                  label: const Text('BERSIHKAN SHEETS & SYNC ULANG',
+                      style: TextStyle(
+                          color: Colors.black,
+                          fontSize: 13,
                           fontWeight: FontWeight.bold)),
                 ),
               ),
