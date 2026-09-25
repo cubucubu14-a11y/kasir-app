@@ -75,6 +75,7 @@ class _KasirPageState extends State<KasirPage> {
   bool sedangSync = false;
   String progressSync = '';
   bool showOmset = false;
+  bool _stopResinkronisasi = false;
   final nominals = [
     5000,
     10000,
@@ -110,7 +111,7 @@ class _KasirPageState extends State<KasirPage> {
       deletedIds = list.map((e) => e as int).toList();
     }
     setState(() {});
-    _syncSemua(silent: true);
+    _syncSemua(silent: true, autoRetry: false);
   }
 
   Future<void> _saveData() async {
@@ -128,9 +129,12 @@ class _KasirPageState extends State<KasirPage> {
       RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (m) => '${m[1]}.');
 
   Future<http.Response> _getWithTimeout(Uri url) async {
-    return await http.get(url).timeout(const Duration(seconds: 10));
+    return await http.get(url).timeout(const Duration(seconds: 15));
   }
 
+  // ============================================================
+  //   API CALLS
+  // ============================================================
   Future<Map<String, dynamic>> _kirimUpsert(Transaksi t) async {
     try {
       final url = Uri.parse(SCRIPT_URL).replace(queryParameters: {
@@ -143,13 +147,9 @@ class _KasirPageState extends State<KasirPage> {
       });
       final res = await _getWithTimeout(url);
       if (res.statusCode == 200) {
-        try {
-          final body = jsonDecode(res.body);
-          if (body['status'] == 'ok') return {'ok': true};
-          return {'ok': false, 'err': 'server: ${body['message'] ?? '?'}'};
-        } catch (_) {
-          return {'ok': false, 'err': 'parse'};
-        }
+        final body = jsonDecode(res.body);
+        if (body['status'] == 'ok') return {'ok': true};
+        return {'ok': false, 'err': body['message'] ?? '?'};
       }
       return {'ok': false, 'err': 'http-${res.statusCode}'};
     } catch (e) {
@@ -165,17 +165,9 @@ class _KasirPageState extends State<KasirPage> {
       });
       final res = await _getWithTimeout(url);
       if (res.statusCode == 200) {
-        try {
-          final body = jsonDecode(res.body);
-          if (body['status'] == 'ok') return {'ok': true};
-          final msg = body['message'] ?? '?';
-          if (msg.toString().contains('tidak ditemukan')) {
-            return {'ok': true, 'notFound': true};
-          }
-          return {'ok': false, 'err': 'server: $msg'};
-        } catch (_) {
-          return {'ok': false, 'err': 'parse'};
-        }
+        final body = jsonDecode(res.body);
+        if (body['status'] == 'ok') return {'ok': true};
+        return {'ok': false, 'err': body['message'] ?? '?'};
       }
       return {'ok': false, 'err': 'http-${res.statusCode}'};
     } catch (e) {
@@ -183,20 +175,19 @@ class _KasirPageState extends State<KasirPage> {
     }
   }
 
-  Future<Map<String, dynamic>> _kirimCleanup() async {
+  Future<Map<String, dynamic>> _ambilIdDariSheets() async {
     try {
       final url = Uri.parse(SCRIPT_URL).replace(queryParameters: {
-        'action': 'cleanup',
+        'action': 'list',
       });
       final res = await _getWithTimeout(url);
       if (res.statusCode == 200) {
-        try {
-          final body = jsonDecode(res.body);
-          if (body['status'] == 'ok') return {'ok': true};
-          return {'ok': false, 'err': 'server: ${body['message'] ?? '?'}'};
-        } catch (_) {
-          return {'ok': false, 'err': 'parse'};
+        final body = jsonDecode(res.body);
+        if (body['status'] == 'ok') {
+          final list = (body['ids'] as List).map((e) => e as int).toList();
+          return {'ok': true, 'ids': list};
         }
+        return {'ok': false, 'err': body['message'] ?? '?'};
       }
       return {'ok': false, 'err': 'http-${res.statusCode}'};
     } catch (e) {
@@ -204,6 +195,9 @@ class _KasirPageState extends State<KasirPage> {
     }
   }
 
+  // ============================================================
+  //   SYNC
+  // ============================================================
   Future<void> _cobaSync(Transaksi t) async {
     final result = await _kirimUpsert(t);
     if (result['ok'] == true) {
@@ -212,92 +206,138 @@ class _KasirPageState extends State<KasirPage> {
     }
   }
 
-  Future<void> _syncSemua({bool silent = false}) async {
+  Future<void> _syncSemua({bool silent = false, bool autoRetry = true}) async {
     if (sedangSync) return;
-    final pendingTrans = transaksi.where((t) => !t.synced).toList();
-    final pendingDeletes = List<int>.from(deletedIds);
 
-    if (pendingTrans.isEmpty && pendingDeletes.isEmpty) {
-      if (!silent && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Semua data sudah tersinkron')));
+    int attempt = 0;
+    const maxAttempt = 5;
+
+    while (true) {
+      attempt++;
+      final pendingTrans = transaksi.where((t) => !t.synced).toList();
+      final pendingDeletes = List<int>.from(deletedIds);
+
+      if (pendingTrans.isEmpty && pendingDeletes.isEmpty) {
+        if (mounted && !silent && attempt == 1) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Semua data sudah tersinkron')));
+        }
+        if (mounted && attempt > 1) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('✓ Semua data sudah sesuai HP ↔ Sheets'),
+            duration: Duration(seconds: 3),
+            backgroundColor: Color(0xFF2D4F2D),
+          ));
+        }
+        return;
       }
-      return;
-    }
 
-    setState(() {
-      sedangSync = true;
-      progressSync = 'Memulai...';
-    });
-
-    int sukses = 0;
-    int gagal = 0;
-    final totalTugas = pendingTrans.length + pendingDeletes.length;
-    int ke = 0;
-    String errMsg = '';
-
-    final sisaDeletes = <int>[];
-    for (final id in pendingDeletes) {
-      ke++;
-      if (mounted) setState(() => progressSync = 'Hapus $ke/$totalTugas');
-      final r = await _kirimDelete(id);
-      if (r['ok'] == true) {
-        sukses++;
-      } else {
-        sisaDeletes.add(id);
-        gagal++;
-        if (errMsg.isEmpty) errMsg = r['err'] ?? 'unknown';
-      }
-      await Future.delayed(const Duration(milliseconds: 100));
-    }
-
-    for (final t in pendingTrans) {
-      ke++;
-      if (mounted) setState(() => progressSync = 'Kirim $ke/$totalTugas');
-      final r = await _kirimUpsert(t);
-      if (r['ok'] == true) {
-        t.synced = true;
-        sukses++;
-      } else {
-        gagal++;
-        if (errMsg.isEmpty) errMsg = r['err'] ?? 'unknown';
-      }
-      await Future.delayed(const Duration(milliseconds: 100));
-    }
-
-    deletedIds = sisaDeletes;
-    await _saveData();
-
-    if (mounted) {
       setState(() {
-        sedangSync = false;
-        progressSync = '';
+        sedangSync = true;
+        progressSync = 'Memulai...';
       });
-      String pesan;
-      if (gagal == 0) {
-        pesan = 'Sync berhasil: $sukses/$totalTugas data';
-      } else if (sukses == 0) {
-        pesan = 'Gagal semua: $errMsg';
-      } else {
-        pesan = 'Sebagian berhasil: $sukses/$totalTugas (gagal $gagal)';
+
+      int sukses = 0;
+      int gagal = 0;
+      final totalTugas = pendingTrans.length + pendingDeletes.length;
+      int ke = 0;
+      String errMsg = '';
+
+      final sisaDeletes = <int>[];
+      for (final id in pendingDeletes) {
+        ke++;
+        if (mounted) {
+          setState(() => progressSync =
+              'Hapus $ke/$totalTugas' + (attempt > 1 ? ' (coba $attempt)' : ''));
+        }
+        final r = await _kirimDelete(id);
+        if (r['ok'] == true) {
+          sukses++;
+        } else {
+          sisaDeletes.add(id);
+          gagal++;
+          if (errMsg.isEmpty) errMsg = r['err'] ?? 'unknown';
+        }
+        await Future.delayed(const Duration(milliseconds: 100));
       }
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(pesan),
-        duration: const Duration(seconds: 8),
-      ));
+
+      for (final t in pendingTrans) {
+        ke++;
+        if (mounted) {
+          setState(() => progressSync =
+              'Kirim $ke/$totalTugas' + (attempt > 1 ? ' (coba $attempt)' : ''));
+        }
+        final r = await _kirimUpsert(t);
+        if (r['ok'] == true) {
+          t.synced = true;
+          sukses++;
+        } else {
+          gagal++;
+          if (errMsg.isEmpty) errMsg = r['err'] ?? 'unknown';
+        }
+        await Future.delayed(const Duration(milliseconds: 100));
+      }
+
+      deletedIds = sisaDeletes;
+      await _saveData();
+
+      if (gagal == 0) {
+        if (mounted) {
+          setState(() {
+            sedangSync = false;
+            progressSync = '';
+          });
+          if (!silent) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text('✓ Sync berhasil: $sukses/$totalTugas data'),
+              duration: const Duration(seconds: 4),
+              backgroundColor: const Color(0xFF2D4F2D),
+            ));
+          }
+        }
+        return;
+      }
+
+      if (!autoRetry || attempt >= maxAttempt) {
+        if (mounted) {
+          setState(() {
+            sedangSync = false;
+            progressSync = '';
+          });
+          final sisa = sisaDeletes.length +
+              transaksi.where((t) => !t.synced).length;
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(
+                'Gagal setelah $attempt percobaan. Sisa $sisa data pending. Error: $errMsg'),
+            duration: const Duration(seconds: 10),
+            backgroundColor: const Color(0xFF7F3F3F),
+          ));
+        }
+        return;
+      }
+
+      if (mounted) {
+        setState(() => progressSync = 'Retry dalam 3 detik...');
+      }
+      await Future.delayed(const Duration(seconds: 3));
     }
   }
 
-  Future<void> _bersihkanSheetsDanSyncUlang() async {
+  // ============================================================
+  //   RESINKRONISASI (BANDINGKAN HP vs SHEETS) - BISA STOP & GO
+  // ============================================================
+  Future<void> _resinkronisasi() async {
     final konfirmasi = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Bersihkan & Sync Ulang'),
+        title: const Text('Resinkronisasi'),
         content: const Text(
-            'INI AKAN MENGHAPUS SEMUA DATA DI SHEETS,\n'
-            'lalu mengirim ulang semua data dari HP ini.\n\n'
-            'Gunakan ini kalau ada selisih antara HP dan Sheets.\n\n'
-            'Data di HP tetap aman.\n\n'
+            'Proses ini akan:\n\n'
+            '1. Ambil daftar ID di Sheets\n'
+            '2. Bandingkan dengan ID di HP\n'
+            '3. HAPUS dari Sheets yang tidak ada di HP\n\n'
+            'Data di HP tidak akan diubah.\n\n'
+            'Bisa dihentikan kapan saja.\n\n'
             'Lanjutkan?'),
         actions: [
           TextButton(
@@ -305,9 +345,9 @@ class _KasirPageState extends State<KasirPage> {
               child: const Text('BATAL')),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFF38BA8)),
+                backgroundColor: const Color(0xFF89B4FA)),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('BERSIHKAN',
+            child: const Text('MULAI',
                 style: TextStyle(
                     color: Colors.black, fontWeight: FontWeight.bold)),
           ),
@@ -316,12 +356,14 @@ class _KasirPageState extends State<KasirPage> {
     );
     if (konfirmasi != true) return;
 
+    _stopResinkronisasi = false;
+
     setState(() {
       sedangSync = true;
-      progressSync = 'Bersihkan Sheets...';
+      progressSync = 'Ambil data dari Sheets...';
     });
 
-    final hasil = await _kirimCleanup();
+    final hasil = await _ambilIdDariSheets();
 
     if (hasil['ok'] != true) {
       if (mounted) {
@@ -330,39 +372,111 @@ class _KasirPageState extends State<KasirPage> {
           progressSync = '';
         });
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Gagal bersihkan Sheets: ${hasil['err']}'),
+          content: Text('Gagal ambil data Sheets: ${hasil['err']}'),
           duration: const Duration(seconds: 8),
+          backgroundColor: const Color(0xFF7F3F3F),
         ));
       }
       return;
     }
 
-    setState(() {
-      for (final t in transaksi) {
-        t.synced = false;
-      }
-      deletedIds = [];
-      sedangSync = false;
-      progressSync = '';
-    });
-    await _saveData();
+    final List<int> idDiSheets = List<int>.from(hasil['ids']);
+    final Set<int> idDiHp = transaksi.map((t) => t.id).toSet();
 
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Sheets dibersihkan. Mulai sync ulang...'),
-        duration: Duration(seconds: 3),
-      ));
+    final idHantu = idDiSheets.where((id) => !idDiHp.contains(id)).toList();
+
+    if (idHantu.isEmpty) {
+      if (mounted) {
+        setState(() {
+          sedangSync = false;
+          progressSync = '';
+        });
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content:
+              Text('✓ Data sudah konsisten. Tidak ada yang perlu dihapus.'),
+          duration: Duration(seconds: 4),
+          backgroundColor: Color(0xFF2D4F2D),
+        ));
+      }
+      return;
     }
 
-    _syncSemua();
+    int berhasil = 0;
+    int gagal = 0;
+    String errMsg = '';
+    int selesai = 0;
+
+    for (int i = 0; i < idHantu.length; i++) {
+      if (_stopResinkronisasi) {
+        break;
+      }
+
+      if (mounted) {
+        setState(() {
+          selesai = i + 1;
+          progressSync = 'Hapus ${i + 1}/${idHantu.length}';
+        });
+      }
+
+      final r = await _kirimDelete(idHantu[i]);
+      if (r['ok'] == true) {
+        berhasil++;
+      } else {
+        gagal++;
+        if (errMsg.isEmpty) errMsg = r['err'] ?? 'unknown';
+      }
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+
+    final sisa = idHantu.length - selesai;
+
+    if (mounted) {
+      setState(() {
+        sedangSync = false;
+        progressSync = '';
+      });
+
+      if (_stopResinkronisasi) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+              '⏹ Dihentikan. Berhasil: $berhasil, Sisa: $sisa'),
+          duration: const Duration(seconds: 8),
+          backgroundColor: const Color(0xFF7F5F1F),
+        ));
+      } else {
+        String pesan;
+        if (gagal == 0) {
+          pesan =
+              '✓ Resinkronisasi selesai. $berhasil data hantu dihapus.';
+        } else if (berhasil == 0) {
+          pesan = 'Gagal semua: $errMsg';
+        } else {
+          pesan =
+              'Sebagian berhasil: $berhasil dihapus, $gagal gagal. Error: $errMsg';
+        }
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(pesan),
+          duration: const Duration(seconds: 8),
+          backgroundColor:
+              gagal == 0 ? const Color(0xFF2D4F2D) : const Color(0xFF7F3F3F),
+        ));
+      }
+    }
   }
 
+  // ============================================================
+  //   UI HELPERS
+  // ============================================================
   int get _jumlahBelumSync =>
       transaksi.where((t) => !t.synced).length + deletedIds.length;
 
   List<Transaksi> _riwayatHariIni() {
     final today = _tglStr(DateTime.now());
-    return transaksi.where((t) => t.tanggal == today).toList().reversed.toList();
+    return transaksi
+        .where((t) => t.tanggal == today)
+        .toList()
+        .reversed
+        .toList();
   }
 
   int get _totalHariIni =>
@@ -376,12 +490,16 @@ class _KasirPageState extends State<KasirPage> {
       .where((t) => t.metode == 'QRIS')
       .fold<int>(0, (sum, t) => sum + t.nominal);
 
+  // ============================================================
+  //   CRUD
+  // ============================================================
   Future<void> _konfirmasiNominal(int nominal) async {
     final hasil = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Konfirmasi'),
-        content: Text('Simpan transaksi ini?\n\nNominal: Rp ${_rp(nominal)}'),
+        content:
+            Text('Simpan transaksi ini?\n\nNominal: Rp ${_rp(nominal)}'),
         actions: [
           ElevatedButton(
             style: ElevatedButton.styleFrom(
@@ -439,12 +557,13 @@ class _KasirPageState extends State<KasirPage> {
                 TextField(
                   controller: controller,
                   keyboardType: TextInputType.number,
-                  decoration:
-                      const InputDecoration(labelText: 'Nominal baru (Rp)'),
+                  decoration: const InputDecoration(
+                      labelText: 'Nominal baru (Rp)'),
                 ),
                 const SizedBox(height: 16),
                 const Text('Metode:',
-                    style: TextStyle(fontSize: 14, color: Colors.white70)),
+                    style: TextStyle(
+                        fontSize: 14, color: Colors.white70)),
                 const SizedBox(height: 4),
                 Row(
                   children: [
@@ -453,7 +572,8 @@ class _KasirPageState extends State<KasirPage> {
                         onTap: () =>
                             setLocalState(() => metodeEdit = 'Tunai'),
                         child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          padding:
+                              const EdgeInsets.symmetric(vertical: 10),
                           decoration: BoxDecoration(
                             color: metodeEdit == 'Tunai'
                                 ? const Color(0xFFA6E3A1)
@@ -461,7 +581,8 @@ class _KasirPageState extends State<KasirPage> {
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
+                            mainAxisAlignment:
+                                MainAxisAlignment.center,
                             children: [
                               Icon(Icons.payments,
                                   size: 18,
@@ -486,7 +607,8 @@ class _KasirPageState extends State<KasirPage> {
                         onTap: () =>
                             setLocalState(() => metodeEdit = 'QRIS'),
                         child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          padding:
+                              const EdgeInsets.symmetric(vertical: 10),
                           decoration: BoxDecoration(
                             color: metodeEdit == 'QRIS'
                                 ? const Color(0xFF89B4FA)
@@ -494,7 +616,8 @@ class _KasirPageState extends State<KasirPage> {
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
+                            mainAxisAlignment:
+                                MainAxisAlignment.center,
                             children: [
                               Icon(Icons.qr_code,
                                   size: 18,
@@ -526,8 +649,8 @@ class _KasirPageState extends State<KasirPage> {
               style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFFA6E3A1)),
               onPressed: () => Navigator.pop(ctx, true),
-              child:
-                  const Text('SIMPAN', style: TextStyle(color: Colors.black)),
+              child: const Text('SIMPAN',
+                  style: TextStyle(color: Colors.black)),
             ),
           ],
         ),
@@ -553,7 +676,8 @@ class _KasirPageState extends State<KasirPage> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Konfirmasi Hapus'),
-        content: Text('Hapus transaksi ${t.jam} - Rp ${_rp(t.nominal)}?'),
+        content:
+            Text('Hapus transaksi ${t.jam} - Rp ${_rp(t.nominal)}?'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),
@@ -562,7 +686,8 @@ class _KasirPageState extends State<KasirPage> {
             style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFFF38BA8)),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('HAPUS', style: TextStyle(color: Colors.black)),
+            child: const Text('HAPUS',
+                style: TextStyle(color: Colors.black)),
           ),
         ],
       ),
@@ -570,12 +695,10 @@ class _KasirPageState extends State<KasirPage> {
     if (ok == true) {
       setState(() {
         transaksi.removeWhere((x) => x.id == t.id);
-        if (t.synced) {
-          deletedIds.add(t.id);
-        }
+        deletedIds.add(t.id);
       });
       await _saveData();
-      _syncSemua(silent: true);
+      _syncSemua(silent: true, autoRetry: true);
     }
   }
 
@@ -655,13 +778,15 @@ class _KasirPageState extends State<KasirPage> {
 
     final filtered = transaksi
         .where((t) =>
-            t.tanggal.compareTo(tgl1) >= 0 && t.tanggal.compareTo(tgl2) <= 0)
+            t.tanggal.compareTo(tgl1) >= 0 &&
+            t.tanggal.compareTo(tgl2) <= 0)
         .toList();
 
     if (filtered.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Tidak ada transaksi dari $tgl1 sampai $tgl2')));
+            content:
+                Text('Tidak ada transaksi dari $tgl1 sampai $tgl2')));
       }
       return;
     }
@@ -669,8 +794,8 @@ class _KasirPageState extends State<KasirPage> {
     final buffer = StringBuffer('No,Tanggal,Jam,Nominal,Metode\n');
     for (int i = 0; i < filtered.length; i++) {
       final t = filtered[i];
-      buffer
-          .writeln('${i + 1},${t.tanggal},${t.jam},${t.nominal},${t.metode}');
+      buffer.writeln(
+          '${i + 1},${t.tanggal},${t.jam},${t.nominal},${t.metode}');
     }
     final total = filtered.fold<int>(0, (sum, t) => sum + t.nominal);
     final totalTunai = filtered
@@ -719,15 +844,19 @@ class _KasirPageState extends State<KasirPage> {
           child: Column(
             children: [
               const Text('KASIR',
-                  style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
+                  style: TextStyle(
+                      fontSize: 28, fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
               GestureDetector(
-                onLongPressStart: (_) => setState(() => showOmset = true),
-                onLongPressEnd: (_) => setState(() => showOmset = false),
-                onLongPressCancel: () => setState(() => showOmset = false),
+                onLongPressStart: (_) =>
+                    setState(() => showOmset = true),
+                onLongPressEnd: (_) =>
+                    setState(() => showOmset = false),
+                onLongPressCancel: () =>
+                    setState(() => showOmset = false),
                 child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 10),
                   decoration: BoxDecoration(
                     color: const Color(0xFF313244),
                     borderRadius: BorderRadius.circular(12),
@@ -738,14 +867,17 @@ class _KasirPageState extends State<KasirPage> {
                             Text(
                               'Total hari ini: Rp ${_rp(total)}',
                               style: const TextStyle(
-                                  fontSize: 20, color: Color(0xFFA6E3A1)),
+                                  fontSize: 20,
+                                  color: Color(0xFFA6E3A1)),
                             ),
                             const SizedBox(height: 6),
                             Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
+                              mainAxisAlignment:
+                                  MainAxisAlignment.center,
                               children: [
                                 const Icon(Icons.payments,
-                                    size: 16, color: Color(0xFFA6E3A1)),
+                                    size: 16,
+                                    color: Color(0xFFA6E3A1)),
                                 const SizedBox(width: 4),
                                 Text('Rp ${_rp(totalTunai)}',
                                     style: const TextStyle(
@@ -753,7 +885,8 @@ class _KasirPageState extends State<KasirPage> {
                                         color: Color(0xFFA6E3A1))),
                                 const SizedBox(width: 20),
                                 const Icon(Icons.qr_code,
-                                    size: 16, color: Color(0xFF89B4FA)),
+                                    size: 16,
+                                    color: Color(0xFF89B4FA)),
                                 const SizedBox(width: 4),
                                 Text('Rp ${_rp(totalQris)}',
                                     style: const TextStyle(
@@ -766,34 +899,75 @@ class _KasirPageState extends State<KasirPage> {
                       : const Text(
                           'Total hari ini: ●●●●●●●',
                           style: TextStyle(
-                              fontSize: 20, color: Color(0xFFA6E3A1)),
+                              fontSize: 20,
+                              color: Color(0xFFA6E3A1)),
                         ),
                 ),
               ),
               const SizedBox(height: 2),
               const Text('(tahan untuk lihat omset)',
-                  style: TextStyle(fontSize: 10, color: Colors.white38)),
+                  style: TextStyle(
+                      fontSize: 10, color: Colors.white38)),
               const SizedBox(height: 6),
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Icon(
-                    belumSync == 0 ? Icons.cloud_done : Icons.cloud_off,
-                    color: belumSync == 0
-                        ? const Color(0xFFA6E3A1)
-                        : const Color(0xFFF9E2AF),
+                    belumSync == 0
+                        ? Icons.cloud_done
+                        : Icons.cloud_off,
+                    color: sedangSync
+                        ? const Color(0xFF89B4FA)
+                        : (belumSync == 0
+                            ? const Color(0xFFA6E3A1)
+                            : const Color(0xFFF9E2AF)),
                     size: 16,
                   ),
                   const SizedBox(width: 4),
-                  Text(
-                    belumSync == 0
-                        ? 'Semua tersinkron ke Sheets'
-                        : '$belumSync data belum tersinkron',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: belumSync == 0
-                          ? const Color(0xFFA6E3A1)
-                          : const Color(0xFFF9E2AF),
+                  Flexible(
+                    child: Text(
+                      sedangSync && progressSync.isNotEmpty
+                          ? progressSync
+                          : (belumSync == 0
+                              ? 'Semua tersinkron ke Sheets'
+                              : '$belumSync data belum tersinkron'),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: sedangSync
+                            ? const Color(0xFF89B4FA)
+                            : (belumSync == 0
+                                ? const Color(0xFFA6E3A1)
+                                : const Color(0xFFF9E2AF)),
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  GestureDetector(
+                    onTap: () {
+                      if (sedangSync) {
+                        setState(() => _stopResinkronisasi = true);
+                      } else {
+                        _resinkronisasi();
+                      }
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: sedangSync
+                            ? const Color(0xFFF38BA8).withOpacity(0.2)
+                            : const Color(0xFFCBA6F7).withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Icon(
+                        sedangSync
+                            ? Icons.stop_circle
+                            : Icons.sync,
+                        size: 24,
+                        color: sedangSync
+                            ? const Color(0xFFF38BA8)
+                            : const Color(0xFFCBA6F7),
+                      ),
                     ),
                   ),
                 ],
@@ -808,14 +982,18 @@ class _KasirPageState extends State<KasirPage> {
                         backgroundColor: const Color(0xFFF9E2AF),
                         padding: const EdgeInsets.all(10),
                       ),
-                      onPressed: sedangSync ? null : () => _syncSemua(),
+                      onPressed: sedangSync
+                          ? null
+                          : () => _syncSemua(autoRetry: true),
                       icon: sedangSync
                           ? const SizedBox(
                               width: 18,
                               height: 18,
                               child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: Colors.black))
-                          : const Icon(Icons.sync, color: Colors.black),
+                                  strokeWidth: 2,
+                                  color: Colors.black))
+                          : const Icon(Icons.sync,
+                              color: Colors.black),
                       label: Text(
                         sedangSync
                             ? 'SYNC $progressSync'
@@ -838,7 +1016,8 @@ class _KasirPageState extends State<KasirPage> {
                 children: nominals
                     .map((n) => ElevatedButton(
                           style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF89B4FA)),
+                              backgroundColor:
+                                  const Color(0xFF89B4FA)),
                           onPressed: () => _konfirmasiNominal(n),
                           child: Text(_rp(n),
                               style: const TextStyle(
@@ -850,7 +1029,8 @@ class _KasirPageState extends State<KasirPage> {
               ),
               const SizedBox(height: 20),
               const Text('RIWAYAT HARI INI',
-                  style: TextStyle(fontSize: 14, color: Color(0xFF89B4FA))),
+                  style: TextStyle(
+                      fontSize: 14, color: Color(0xFF89B4FA))),
               const SizedBox(height: 8),
               if (riwayat.isEmpty)
                 const Padding(
@@ -895,11 +1075,13 @@ class _KasirPageState extends State<KasirPage> {
                           IconButton(
                               icon: const Icon(Icons.edit,
                                   color: Color(0xFF89B4FA)),
-                              onPressed: () => _editTransaksi(e.value)),
+                              onPressed: () =>
+                                  _editTransaksi(e.value)),
                           IconButton(
                               icon: const Icon(Icons.delete,
                                   color: Color(0xFFF38BA8)),
-                              onPressed: () => _hapusTransaksi(e.value)),
+                              onPressed: () =>
+                                  _hapusTransaksi(e.value)),
                         ],
                       ),
                     )),
@@ -911,7 +1093,8 @@ class _KasirPageState extends State<KasirPage> {
                       backgroundColor: const Color(0xFF89B4FA),
                       padding: const EdgeInsets.all(14)),
                   onPressed: _bukaLaporan,
-                  icon: const Icon(Icons.bar_chart, color: Colors.black),
+                  icon: const Icon(Icons.bar_chart,
+                      color: Colors.black),
                   label: const Text('LAPORAN PENJUALAN',
                       style: TextStyle(
                           color: Colors.black,
@@ -927,29 +1110,12 @@ class _KasirPageState extends State<KasirPage> {
                       backgroundColor: const Color(0xFFA6E3A1),
                       padding: const EdgeInsets.all(16)),
                   onPressed: _exportCsv,
-                  icon: const Icon(Icons.download, color: Colors.black),
+                  icon: const Icon(Icons.download,
+                      color: Colors.black),
                   label: const Text('EXPORT KE CSV',
                       style: TextStyle(
                           color: Colors.black,
                           fontSize: 16,
-                          fontWeight: FontWeight.bold)),
-                ),
-              ),
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFF38BA8),
-                      padding: const EdgeInsets.all(14)),
-                  onPressed:
-                      sedangSync ? null : _bersihkanSheetsDanSyncUlang,
-                  icon: const Icon(Icons.cleaning_services,
-                      color: Colors.black),
-                  label: const Text('BERSIHKAN SHEETS & SYNC ULANG',
-                      style: TextStyle(
-                          color: Colors.black,
-                          fontSize: 13,
                           fontWeight: FontWeight.bold)),
                 ),
               ),
@@ -962,7 +1128,7 @@ class _KasirPageState extends State<KasirPage> {
 }
 
 // ============================================================
-//   HALAMAN LAPORAN - PILIH RENTANG TANGGAL
+//   HALAMAN LAPORAN
 // ============================================================
 class LaporanPage extends StatefulWidget {
   final List<Transaksi> transaksi;
@@ -992,7 +1158,8 @@ class _LaporanPageState extends State<LaporanPage> {
     final d2 = _fmtTgl(tglAkhir!);
     return widget.transaksi
         .where((t) =>
-            t.tanggal.compareTo(d1) >= 0 && t.tanggal.compareTo(d2) <= 0)
+            t.tanggal.compareTo(d1) >= 0 &&
+            t.tanggal.compareTo(d2) <= 0)
         .toList();
   }
 
@@ -1104,7 +1271,8 @@ class _LaporanPageState extends State<LaporanPage> {
                       backgroundColor: const Color(0xFF89B4FA),
                       padding: const EdgeInsets.all(14)),
                   onPressed: _pilihRentang,
-                  icon: const Icon(Icons.date_range, color: Colors.black),
+                  icon: const Icon(Icons.date_range,
+                      color: Colors.black),
                   label: const Text('PILIH RENTANG TANGGAL',
                       style: TextStyle(
                           color: Colors.black,
@@ -1114,8 +1282,8 @@ class _LaporanPageState extends State<LaporanPage> {
               ),
               const SizedBox(height: 10),
               const Text('ATAU PILIH CEPAT:',
-                  style:
-                      TextStyle(fontSize: 12, color: Color(0xFF89B4FA))),
+                  style: TextStyle(
+                      fontSize: 12, color: Color(0xFF89B4FA))),
               const SizedBox(height: 6),
               Wrap(
                 spacing: 6,
@@ -1140,26 +1308,30 @@ class _LaporanPageState extends State<LaporanPage> {
                       Text(
                           'Periode: ${_tglTampil(tglAwal!)}  s/d  ${_tglTampil(tglAkhir!)}',
                           style: const TextStyle(
-                              color: Color(0xFF89B4FA), fontSize: 13),
+                              color: Color(0xFF89B4FA),
+                              fontSize: 13),
                           textAlign: TextAlign.center),
                       const SizedBox(height: 12),
                       const Text('TOTAL OMZET',
                           style: TextStyle(
-                              color: Colors.white70, fontSize: 12)),
+                              color: Colors.white70,
+                              fontSize: 12)),
                       const SizedBox(height: 4),
                       Text('Rp ${_rp(_total)}',
                           style: const TextStyle(
                               color: Color(0xFFA6E3A1),
                               fontSize: 28,
                               fontWeight: FontWeight.bold)),
-                      const Divider(color: Colors.white24, height: 24),
+                      const Divider(
+                          color: Colors.white24, height: 24),
                       Row(
                         children: [
                           Expanded(
                             child: Column(
                               children: [
                                 Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.center,
                                   children: const [
                                     Icon(Icons.payments,
                                         size: 16,
@@ -1176,17 +1348,21 @@ class _LaporanPageState extends State<LaporanPage> {
                                     style: const TextStyle(
                                         color: Color(0xFFA6E3A1),
                                         fontSize: 15,
-                                        fontWeight: FontWeight.bold)),
+                                        fontWeight:
+                                            FontWeight.bold)),
                               ],
                             ),
                           ),
                           Container(
-                              width: 1, height: 40, color: Colors.white24),
+                              width: 1,
+                              height: 40,
+                              color: Colors.white24),
                           Expanded(
                             child: Column(
                               children: [
                                 Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.center,
                                   children: const [
                                     Icon(Icons.qr_code,
                                         size: 16,
@@ -1203,7 +1379,8 @@ class _LaporanPageState extends State<LaporanPage> {
                                     style: const TextStyle(
                                         color: Color(0xFF89B4FA),
                                         fontSize: 15,
-                                        fontWeight: FontWeight.bold)),
+                                        fontWeight:
+                                            FontWeight.bold)),
                               ],
                             ),
                           ),
@@ -1213,7 +1390,8 @@ class _LaporanPageState extends State<LaporanPage> {
                       Text(
                           '${_filtered.length} transaksi  •  ${perHari.length} hari ada transaksi',
                           style: const TextStyle(
-                              color: Colors.white70, fontSize: 12)),
+                              color: Colors.white70,
+                              fontSize: 12)),
                     ],
                   ),
                 )
@@ -1251,17 +1429,21 @@ class _LaporanPageState extends State<LaporanPage> {
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      mainAxisAlignment:
+                          MainAxisAlignment.spaceBetween,
                       children: [
                         Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                          crossAxisAlignment:
+                              CrossAxisAlignment.start,
                           children: [
                             Text(tglTxt,
                                 style: const TextStyle(
-                                    color: Colors.white, fontSize: 14)),
+                                    color: Colors.white,
+                                    fontSize: 14)),
                             Text('$jumlah transaksi',
                                 style: const TextStyle(
-                                    color: Colors.white54, fontSize: 11)),
+                                    color: Colors.white54,
+                                    fontSize: 11)),
                           ],
                         ),
                         Text('Rp ${_rp(subtotal)}',
