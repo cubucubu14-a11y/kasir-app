@@ -132,9 +132,6 @@ class _KasirPageState extends State<KasirPage> {
     return await http.get(url).timeout(const Duration(seconds: 15));
   }
 
-  // ============================================================
-  //   API CALLS
-  // ============================================================
   Future<Map<String, dynamic>> _kirimUpsert(Transaksi t) async {
     try {
       final url = Uri.parse(SCRIPT_URL).replace(queryParameters: {
@@ -195,9 +192,6 @@ class _KasirPageState extends State<KasirPage> {
     }
   }
 
-  // ============================================================
-  //   SYNC
-  // ============================================================
   Future<void> _cobaSync(Transaksi t) async {
     final result = await _kirimUpsert(t);
     if (result['ok'] == true) {
@@ -323,39 +317,7 @@ class _KasirPageState extends State<KasirPage> {
     }
   }
 
-  // ============================================================
-  //   RESINKRONISASI (BANDINGKAN HP vs SHEETS) - BISA STOP & GO
-  // ============================================================
   Future<void> _resinkronisasi() async {
-    final konfirmasi = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Resinkronisasi'),
-        content: const Text(
-            'Proses ini akan:\n\n'
-            '1. Ambil daftar ID di Sheets\n'
-            '2. Bandingkan dengan ID di HP\n'
-            '3. HAPUS dari Sheets yang tidak ada di HP\n\n'
-            'Data di HP tidak akan diubah.\n\n'
-            'Bisa dihentikan kapan saja.\n\n'
-            'Lanjutkan?'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('BATAL')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF89B4FA)),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('MULAI',
-                style: TextStyle(
-                    color: Colors.black, fontWeight: FontWeight.bold)),
-          ),
-        ],
-      ),
-    );
-    if (konfirmasi != true) return;
-
     _stopResinkronisasi = false;
 
     setState(() {
@@ -438,8 +400,8 @@ class _KasirPageState extends State<KasirPage> {
 
       if (_stopResinkronisasi) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(
-              '⏹ Dihentikan. Berhasil: $berhasil, Sisa: $sisa'),
+          content:
+              Text('⏹ Dihentikan. Berhasil: $berhasil, Sisa: $sisa'),
           duration: const Duration(seconds: 8),
           backgroundColor: const Color(0xFF7F5F1F),
         ));
@@ -464,9 +426,6 @@ class _KasirPageState extends State<KasirPage> {
     }
   }
 
-  // ============================================================
-  //   UI HELPERS
-  // ============================================================
   int get _jumlahBelumSync =>
       transaksi.where((t) => !t.synced).length + deletedIds.length;
 
@@ -490,9 +449,6 @@ class _KasirPageState extends State<KasirPage> {
       .where((t) => t.metode == 'QRIS')
       .fold<int>(0, (sum, t) => sum + t.nominal);
 
-  // ============================================================
-  //   CRUD
-  // ============================================================
   Future<void> _konfirmasiNominal(int nominal) async {
     final hasil = await showDialog<String>(
       context: context,
@@ -1127,9 +1083,6 @@ class _KasirPageState extends State<KasirPage> {
   }
 }
 
-// ============================================================
-//   HALAMAN LAPORAN
-// ============================================================
 class LaporanPage extends StatefulWidget {
   final List<Transaksi> transaksi;
   const LaporanPage({super.key, required this.transaksi});
