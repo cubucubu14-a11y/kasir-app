@@ -561,11 +561,9 @@ class _KasirPageState extends State<KasirPage> {
     final r = _riwayat();
     return Scaffold(
       body: SafeArea(child: SingleChildScrollView(padding: const EdgeInsets.all(12), child: Column(children: [
-        // Header CIRENG WOII
         SizedBox(width: double.infinity, height: 40, child: FittedBox(fit: BoxFit.scaleDown,
           child: Text(APP_HEADER, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold)))),
         const SizedBox(height: 8),
-        // Kartu omset (hidden)
         GestureDetector(
           onLongPressStart: (_) => setState(() => showOmset = true),
           onLongPressEnd: (_) => setState(() => showOmset = false),
@@ -588,7 +586,6 @@ class _KasirPageState extends State<KasirPage> {
         const SizedBox(height: 2),
         const Text('(tahan untuk lihat omset)', style: TextStyle(fontSize: 10, color: Colors.white38)),
         const SizedBox(height: 6),
-        // Sync bar
         Row(mainAxisAlignment: MainAxisAlignment.center, children: [
           Icon(belumSync == 0 ? Icons.cloud_done : Icons.cloud_off,
             color: syncing ? const Color(0xFF89B4FA) : belumSync == 0 ? const Color(0xFFA6E3A1) : const Color(0xFFF9E2AF), size: 16),
@@ -816,7 +813,6 @@ class _BendaharaPageState extends State<BendaharaPage> {
     }
   }
 
-  // Filter helper
   bool _inPeriode(String tgl) {
     final now = DateTime.now();
     final today = tglStr(now);
@@ -839,7 +835,6 @@ class _BendaharaPageState extends State<BendaharaPage> {
   List<PemasukanLain> get _masukFiltered => masuk.where((m) => _inPeriode(m.tanggal)).toList().reversed.toList();
   int get _totalPeng => _pengFiltered.fold(0, (s, t) => s + t.nominal);
 
-  // API
   Future<Map<String, dynamic>> _upPeng(Pengeluaran t) async => apiGet({
     'action': 'upsert-pengeluaran', 'id': t.id.toString(), 'tanggal': t.tanggal,
     'jam': t.jam, 'keterangan': t.keterangan, 'nominal': t.nominal.toString()});
@@ -1107,33 +1102,20 @@ class _BendaharaPageState extends State<BendaharaPage> {
   Future<void> _lihatSaldo() async {
     await _loadSaldo();
     if (!mounted) return;
-    int sel = 0;
-    await showDialog<void>(context: context, builder: (c) => StatefulBuilder(builder: (c, setL) {
-      final bln = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
-      return AlertDialog(
-        title: const Text('Rincian Saldo'),
-        content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            const Text('Periode: '),
-            const SizedBox(width: 8),
-            DropdownButton<int>(value: sel, items: [
-              const DropdownMenuItem(value: 0, child: Text('Akumulatif')),
-              const DropdownMenuItem(value: 1, child: Text('Bulan Ini')),
-            ], onChanged: (v) { setL(() => sel = v ?? 0); }),
-          ]),
-          const Divider(),
-          Text('📈 Pemasukan Kasir: Rp ${rp(saldoKasir)}'),
-          Text('📈 Pemasukan Lain: Rp ${rp(saldoLain)}'),
-          Text('📉 Pengeluaran: Rp ${rp(saldoKeluar)}'),
-          const Divider(),
-          Text('💰 SALDO: Rp ${rp(saldoKasir + saldoLain - saldoKeluar)}',
-            style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFA6E3A1), fontSize: 16)),
-          const SizedBox(height: 8),
-          const Text('(Semua angka akumulatif)', style: TextStyle(fontSize: 11, color: Colors.white54)),
-        ])),
-        actions: [TextButton(onPressed: () => Navigator.pop(c), child: const Text('TUTUP'))],
-      );
-    }));
+    await showDialog<void>(context: context, builder: (c) => AlertDialog(
+      title: const Text('Rincian Saldo'),
+      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('📈 Pemasukan Kasir: Rp ${rp(saldoKasir)}'),
+        Text('📈 Pemasukan Lain: Rp ${rp(saldoLain)}'),
+        Text('📉 Pengeluaran: Rp ${rp(saldoKeluar)}'),
+        const Divider(),
+        Text('💰 SALDO: Rp ${rp(saldoKasir + saldoLain - saldoKeluar)}',
+          style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFA6E3A1), fontSize: 16)),
+        const SizedBox(height: 8),
+        const Text('(Akumulatif semua waktu)', style: TextStyle(fontSize: 11, color: Colors.white54)),
+      ])),
+      actions: [TextButton(onPressed: () => Navigator.pop(c), child: const Text('TUTUP'))],
+    ));
   }
 
   Future<void> _lihatPenjualan() async {
@@ -1141,7 +1123,7 @@ class _BendaharaPageState extends State<BendaharaPage> {
     if (!mounted) return;
     if (r['status'] != 'ok') { _snack('Gagal ambil data', err: true); return; }
     final list = (r['data'] as List).cast<Map<String, dynamic>>();
-    Navigator.push(context, MaterialPageRoute(builder: (_) => _PenjualanKasirPage(data: list)));
+    Navigator.push(context, MaterialPageRoute(builder: (_) => PenjualanKasirPage(data: list)));
   }
 
   Future<void> _pilihFilter() async {
@@ -1185,7 +1167,6 @@ class _BendaharaPageState extends State<BendaharaPage> {
       body: SafeArea(child: SingleChildScrollView(padding: const EdgeInsets.all(12), child: Column(children: [
         const Text('BENDAHARA', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
         const SizedBox(height: 12),
-        // Kartu Saldo
         GestureDetector(onTap: _lihatSaldo, child: Container(
           padding: const EdgeInsets.all(14), width: double.infinity,
           decoration: BoxDecoration(color: const Color(0xFF313244), borderRadius: BorderRadius.circular(12)),
@@ -1198,7 +1179,6 @@ class _BendaharaPageState extends State<BendaharaPage> {
             const Icon(Icons.remove_red_eye, color: Color(0xFF89B4FA), size: 28),
           ]))),
         const SizedBox(height: 10),
-        // Kartu Pengeluaran + filter
         Container(padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(color: const Color(0xFF313244), borderRadius: BorderRadius.circular(12)),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -1213,7 +1193,6 @@ class _BendaharaPageState extends State<BendaharaPage> {
             Text('Rp ${rp(_totalPeng)}', style: const TextStyle(fontSize: 20, color: Colors.white, fontWeight: FontWeight.bold)),
           ])),
         const SizedBox(height: 10),
-        // Tombol aksi 70:30
         Row(children: [
           Expanded(flex: 70, child: ElevatedButton.icon(
             style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFF38BA8), padding: const EdgeInsets.symmetric(vertical: 14)),
@@ -1227,7 +1206,6 @@ class _BendaharaPageState extends State<BendaharaPage> {
             child: const Text('➕ Lain', style: TextStyle(color: Colors.black, fontSize: 12, fontWeight: FontWeight.bold)))),
         ]),
         const SizedBox(height: 10),
-        // Sync bar
         Row(mainAxisAlignment: MainAxisAlignment.center, children: [
           Icon(belumSync == 0 ? Icons.cloud_done : Icons.cloud_off,
             color: syncing ? const Color(0xFF89B4FA) : belumSync == 0 ? const Color(0xFFA6E3A1) : const Color(0xFFF9E2AF), size: 16),
@@ -1248,7 +1226,6 @@ class _BendaharaPageState extends State<BendaharaPage> {
               icon: syncing ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black)) : const Icon(Icons.sync, color: Colors.black),
               label: Text(syncing ? 'SYNC $progress' : 'SYNC SEKARANG ($belumSync)', style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold))))),
         const SizedBox(height: 16),
-        // Daftar Pengeluaran
         Align(alignment: Alignment.centerLeft, child: Text('DAFTAR PENGELUARAN (${pf.length})', style: const TextStyle(fontSize: 13, color: Color(0xFF89B4FA)))),
         const SizedBox(height: 8),
         if (pf.isEmpty) const Padding(padding: EdgeInsets.all(12), child: Text('Belum ada pengeluaran', style: TextStyle(color: Colors.grey)))
@@ -1264,7 +1241,6 @@ class _BendaharaPageState extends State<BendaharaPage> {
             IconButton(icon: const Icon(Icons.edit, size: 20, color: Color(0xFF89B4FA)), onPressed: () => _editPeng(t)),
             IconButton(icon: const Icon(Icons.delete, size: 20, color: Color(0xFFF38BA8)), onPressed: () => _hapusPeng(t))]))),
         const SizedBox(height: 16),
-        // Daftar Pemasukan Lain
         Align(alignment: Alignment.centerLeft, child: Text('DAFTAR PEMASUKAN LAIN (${mf.length})', style: const TextStyle(fontSize: 13, color: Color(0xFF89B4FA)))),
         const SizedBox(height: 8),
         if (mf.isEmpty) const Padding(padding: EdgeInsets.all(12), child: Text('Belum ada pemasukan lain', style: TextStyle(color: Colors.grey)))
@@ -1290,68 +1266,133 @@ class _BendaharaPageState extends State<BendaharaPage> {
   }
 }
 
-// ============ HALAMAN PENJUALAN KASIR (BENDAHARA) ============
-class _PenjualanKasirPage extends StatefulWidget {
+// ============ HALAMAN PENJUALAN KASIR ============
+class PenjualanKasirPage extends StatefulWidget {
   final List<Map<String, dynamic>> data;
-  const _PenjualanKasirPage({required this.data});
+  const PenjualanKasirPage({super.key, required this.data});
   @override
-  State<_PenjualanKasirPage> createState() => _PenjualanKasirPageState();
+  State<PenjualanKasirPage> createState() => _PenjualanKasirPageState();
 }
 
-class _PenjualanKasirPageState extends State<_PenjualanKasirPage> {
+class _PenjualanKasirPageState extends State<PenjualanKasirPage> {
   String filter = 'bulan';
 
   bool _inPeriode(String tgl) {
     final now = DateTime.now();
     final today = tglStr(now);
     switch (filter) {
-      case 'hari': return tgl == today;
+      case 'hari':
+        return tgl == today;
       case 'minggu':
         final wd = now.weekday;
         final start = now.subtract(Duration(days: wd - 1));
         return tgl.compareTo(tglStr(start)) >= 0 && tgl.compareTo(today) <= 0;
-      case 'bulan': return tgl.startsWith('${now.year}-${now.month.toString().padLeft(2, '0')}');
+      case 'bulan':
+        return tgl.startsWith('${now.year}-${now.month.toString().padLeft(2, '0')}');
     }
     return true;
   }
 
   @override
   Widget build(BuildContext context) {
-    final f = widget.data.where((t) => _inPeriode(String.valueOf(t['tanggal']))).toList();
-    final total = f.fold<int>(0, (s, t) => s + (t['nominal'] as int));
+    final f = widget.data
+        .where((t) => _inPeriode((t['tanggal'] ?? '').toString()))
+        .toList();
+    final total = f.fold<int>(0, (s, t) => s + ((t['nominal'] ?? 0) as int));
     return Scaffold(
-      appBar: AppBar(title: const Text('Penjualan Kasir'), backgroundColor: const Color(0xFF1E1E2E)),
-      body: SafeArea(child: SingleChildScrollView(padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Wrap(spacing: 6, children: [
-          ChoiceChip(label: const Text('Hari Ini'), selected: filter == 'hari', onSelected: (_) => setState(() => filter = 'hari')),
-          ChoiceChip(label: const Text('Minggu Ini'), selected: filter == 'minggu', onSelected: (_) => setState(() => filter = 'minggu')),
-          ChoiceChip(label: const Text('Bulan Ini'), selected: filter == 'bulan', onSelected: (_) => setState(() => filter = 'bulan')),
-        ]),
-        const SizedBox(height: 12),
-        Container(padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(color: const Color(0xFF313244), borderRadius: BorderRadius.circular(8)),
-          child: Column(children: [
-            Text('Total: Rp ${rp(total)}', style: const TextStyle(fontSize: 18, color: Color(0xFFA6E3A1), fontWeight: FontWeight.bold)),
-            Text('${f.length} transaksi', style: const TextStyle(color: Colors.white70, fontSize: 12))])),
-        const SizedBox(height: 12),
-        if (f.isEmpty) const Padding(padding: EdgeInsets.all(20), child: Text('Tidak ada data', style: TextStyle(color: Colors.grey)))
-        else ...f.reversed.map((t) => Container(
-          margin: const EdgeInsets.only(bottom: 6), padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          decoration: BoxDecoration(color: const Color(0xFF313244), borderRadius: BorderRadius.circular(8)),
-          child: Row(children: [
-            Icon(t['metode'] == 'QRIS' ? Icons.qr_code : Icons.payments, size: 18,
-              color: t['metode'] == 'QRIS' ? const Color(0xFF89B4FA) : const Color(0xFFA6E3A1)),
-            const SizedBox(width: 8),
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('${fmtTglPendek(String.valueOf(t['tanggal']))} - ${t['jam']}', style: const TextStyle(color: Colors.white, fontSize: 13)),
-              Text('${t['tab']}', style: const TextStyle(color: Colors.white54, fontSize: 11))])),
-            Text('Rp ${rp(t['nominal'] as int)}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))]))),
-      ]))),
+      appBar: AppBar(
+          title: const Text('Penjualan Kasir'),
+          backgroundColor: const Color(0xFF1E1E2E)),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Wrap(spacing: 6, children: [
+                ChoiceChip(
+                    label: const Text('Hari Ini'),
+                    selected: filter == 'hari',
+                    onSelected: (_) => setState(() => filter = 'hari')),
+                ChoiceChip(
+                    label: const Text('Minggu Ini'),
+                    selected: filter == 'minggu',
+                    onSelected: (_) => setState(() => filter = 'minggu')),
+                ChoiceChip(
+                    label: const Text('Bulan Ini'),
+                    selected: filter == 'bulan',
+                    onSelected: (_) => setState(() => filter = 'bulan')),
+              ]),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                    color: const Color(0xFF313244),
+                    borderRadius: BorderRadius.circular(8)),
+                child: Column(children: [
+                  Text('Total: Rp ${rp(total)}',
+                      style: const TextStyle(
+                          fontSize: 18,
+                          color: Color(0xFFA6E3A1),
+                          fontWeight: FontWeight.bold)),
+                  Text('${f.length} transaksi',
+                      style: const TextStyle(
+                          color: Colors.white70, fontSize: 12))
+                ])),
+              const SizedBox(height: 12),
+              if (f.isEmpty)
+                const Padding(
+                    padding: EdgeInsets.all(20),
+                    child: Text('Tidak ada data',
+                        style: TextStyle(color: Colors.grey)))
+              else
+                ...f.reversed.map((t) {
+                  final tgl = (t['tanggal'] ?? '').toString();
+                  final jam = (t['jam'] ?? '').toString();
+                  final tab = (t['tab'] ?? '').toString();
+                  final metode = (t['metode'] ?? 'Tunai').toString();
+                  final nominal = (t['nominal'] ?? 0) as int;
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 6),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 8),
+                    decoration: BoxDecoration(
+                        color: const Color(0xFF313244),
+                        borderRadius: BorderRadius.circular(8)),
+                    child: Row(children: [
+                      Icon(
+                          metode == 'QRIS'
+                              ? Icons.qr_code
+                              : Icons.payments,
+                          size: 18,
+                          color: metode == 'QRIS'
+                              ? const Color(0xFF89B4FA)
+                              : const Color(0xFFA6E3A1)),
+                      const SizedBox(width: 8),
+                      Expanded(
+                          child: Column(
+                              crossAxisAlignment:
+                                  CrossAxisAlignment.start,
+                              children: [
+                            Text('${fmtTglPendek(tgl)} - $jam',
+                                style: const TextStyle(
+                                    color: Colors.white, fontSize: 13)),
+                            Text(tab,
+                                style: const TextStyle(
+                                    color: Colors.white54,
+                                    fontSize: 11))
+                          ])),
+                      Text('Rp ${rp(nominal)}',
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold))
+                    ]),
+                  );
+                }),
+            ],
+          ),
+        ),
+      ),
     );
   }
-}
-
-// extension to convert dynamic to String
-extension _StrExt on Object? {
-  String valueOf() => this?.toString() ?? '';
 }
