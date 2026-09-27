@@ -45,6 +45,17 @@ String fmtTglPendek(String tgl) {
   return '${p[2]} ${bln[int.parse(p[1]) - 1]} ${p[0]}';
 }
 
+Future<Map<String, dynamic>> apiGet(Map<String, String> params) async {
+  try {
+    final uri = Uri.parse(SCRIPT_URL).replace(queryParameters: params);
+    final res = await http.get(uri).timeout(const Duration(seconds: 15));
+    if (res.statusCode == 200) return jsonDecode(res.body);
+    return {'status': 'error', 'message': 'HTTP ${res.statusCode}'};
+  } catch (e) {
+    return {'status': 'error', 'message': e.toString()};
+  }
+}
+
 // ============ MODELS ============
 class Transaksi {
   final int id;
@@ -91,18 +102,6 @@ class PemasukanLain {
       synced: m['synced'] ?? false);
 }
 
-// ============ API ============
-Future<Map<String, dynamic>> apiGet(Map<String, String> params) async {
-  try {
-    final uri = Uri.parse(SCRIPT_URL).replace(queryParameters: params);
-    final res = await http.get(uri).timeout(const Duration(seconds: 15));
-    if (res.statusCode == 200) return jsonDecode(res.body);
-    return {'status': 'error', 'message': 'HTTP ${res.statusCode}'};
-  } catch (e) {
-    return {'status': 'error', 'message': e.toString()};
-  }
-}
-
 // ============ SPLASH ============
 class SplashPage extends StatefulWidget {
   const SplashPage({super.key});
@@ -112,10 +111,7 @@ class SplashPage extends StatefulWidget {
 
 class _SplashPageState extends State<SplashPage> {
   @override
-  void initState() {
-    super.initState();
-    _cek();
-  }
+  void initState() { super.initState(); _cek(); }
 
   Future<void> _cek() async {
     final p = await SharedPreferences.getInstance();
@@ -144,25 +140,18 @@ class PilihModePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Text('PILIH MODE',
-                  style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 10),
-              const Text('Pilih sesuai peran HP ini:',
-                  style: TextStyle(color: Colors.white70)),
-              const SizedBox(height: 40),
-              _btn(context, '🏪  KASIR', 'Untuk input penjualan', 'kasir'),
-              const SizedBox(height: 16),
-              _btn(context, '💰  BENDAHARA', 'Untuk input pengeluaran', 'bendahara'),
-            ],
-          ),
-        ),
-      ),
+      body: SafeArea(child: Padding(padding: const EdgeInsets.all(24), child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Text('PILIH MODE', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 10),
+          const Text('Pilih sesuai peran HP ini:', style: TextStyle(color: Colors.white70)),
+          const SizedBox(height: 40),
+          _btn(context, '🏪  KASIR', 'Untuk input penjualan', 'kasir'),
+          const SizedBox(height: 16),
+          _btn(context, '💰  BENDAHARA', 'Untuk input pengeluaran', 'bendahara'),
+        ],
+      ))),
     );
   }
 
@@ -178,22 +167,15 @@ class PilihModePage extends StatelessWidget {
           Navigator.pushReplacement(c, MaterialPageRoute(builder: (_) => const BendaharaPage()));
         }
       },
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: const Color(0xFF313244),
+      child: Container(width: double.infinity, padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(color: const Color(0xFF313244),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFF89B4FA), width: 2),
-        ),
-        child: Column(
-          children: [
-            Text(t, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 6),
-            Text(sub, style: const TextStyle(fontSize: 12, color: Colors.white70)),
-          ],
-        ),
-      ),
+          border: Border.all(color: const Color(0xFF89B4FA), width: 2)),
+        child: Column(children: [
+          Text(t, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 6),
+          Text(sub, style: const TextStyle(fontSize: 12, color: Colors.white70)),
+        ])),
     );
   }
 }
@@ -211,10 +193,7 @@ class _SetupKasirPageState extends State<SetupKasirPage> {
 
   Future<void> _simpan() async {
     final nama = c.text.trim();
-    if (nama.isEmpty) {
-      setState(() => err = 'Wajib diisi');
-      return;
-    }
+    if (nama.isEmpty) { setState(() => err = 'Wajib diisi'); return; }
     final p = await SharedPreferences.getInstance();
     await p.setString('namaKasir', nama);
     await p.setString('tabKasir', nama);
@@ -224,49 +203,27 @@ class _SetupKasirPageState extends State<SetupKasirPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.store, size: 80, color: Color(0xFF89B4FA)),
-              const SizedBox(height: 20),
-              const Text('NAMA TAB',
-                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              const Text('Nama ini akan jadi nama tab di Sheets',
-                  style: TextStyle(color: Colors.white70, fontSize: 12), textAlign: TextAlign.center),
-              const SizedBox(height: 20),
-              TextField(
-                controller: c,
-                textCapitalization: TextCapitalization.words,
-                decoration: InputDecoration(
-                  labelText: 'Nama Tab',
-                  hintText: 'Contoh: CIRENG WOII',
-                  errorText: err,
-                  border: const OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFA6E3A1),
-                    padding: const EdgeInsets.all(16),
-                  ),
-                  onPressed: _simpan,
-                  child: const Text('SIMPAN & MULAI',
-                      style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+    return Scaffold(body: SafeArea(child: Padding(padding: const EdgeInsets.all(24), child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        const Icon(Icons.store, size: 80, color: Color(0xFF89B4FA)),
+        const SizedBox(height: 20),
+        const Text('NAMA TAB', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        const Text('Nama ini akan jadi nama tab di Sheets',
+            style: TextStyle(color: Colors.white70, fontSize: 12), textAlign: TextAlign.center),
+        const SizedBox(height: 20),
+        TextField(controller: c, textCapitalization: TextCapitalization.words,
+          decoration: InputDecoration(labelText: 'Nama Tab', hintText: 'Contoh: CIRENG WOII',
+            errorText: err, border: const OutlineInputBorder())),
+        const SizedBox(height: 20),
+        SizedBox(width: double.infinity, child: ElevatedButton(
+          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFA6E3A1), padding: const EdgeInsets.all(16)),
+          onPressed: _simpan,
+          child: const Text('SIMPAN & MULAI',
+              style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)))),
+      ],
+    ))));
   }
 }
 
@@ -277,7 +234,7 @@ class KasirPage extends StatefulWidget {
   State<KasirPage> createState() => _KasirPageState();
 }
 
-class _KasirPageState extends State<KasirPage> {
+class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
   List<Transaksi> data = [];
   List<int> delIds = [];
   int nextId = 1;
@@ -287,10 +244,28 @@ class _KasirPageState extends State<KasirPage> {
   bool stopResync = false;
   String tabKasir = '';
   String namaKasir = '';
+  bool _adaHantu = false;
+  bool _sedangCek = false;
+  bool _offline = false;
   final nominals = [5000,10000,15000,20000,25000,30000,35000,40000,45000,50000];
 
   @override
-  void initState() { super.initState(); _load(); }
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _load();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _cekHantu();
+  }
 
   Future<void> _load() async {
     final p = await SharedPreferences.getInstance();
@@ -305,12 +280,35 @@ class _KasirPageState extends State<KasirPage> {
     if (dd != null) delIds = (jsonDecode(dd) as List).map((e) => e as int).toList();
     setState(() {});
     _sync(silent: true, retry: false);
+    _cekHantu();
   }
 
   Future<void> _save() async {
     final p = await SharedPreferences.getInstance();
     await p.setString('transaksi', jsonEncode(data.map((t) => t.toJson()).toList()));
     await p.setString('kasirDel', jsonEncode(delIds));
+  }
+
+  Future<void> _cekHantu() async {
+    if (_sedangCek || syncing) return;
+    setState(() { _sedangCek = true; _offline = false; });
+    final r = await apiGet({'action': 'cek-hantu', 'tab': tabKasir, 'mode': 'kasir', 'hari': '7'});
+    if (!mounted) return;
+    if (r['status'] == 'ok') {
+      final idsSheets = (r['ids'] as List).map((e) => (e['id'] as num).toInt()).toSet();
+      final idsHp = data.map((t) => t.id).toSet();
+      final hantu = idsSheets.where((id) => !idsHp.contains(id)).toList();
+      setState(() { _adaHantu = hantu.isNotEmpty; _sedangCek = false; });
+    } else {
+      setState(() { _sedangCek = false; _offline = true; });
+    }
+  }
+
+  Color get _syncColor {
+    if (_sedangCek || syncing) return const Color(0xFF89B4FA);
+    if (_offline) return Colors.grey;
+    if (_adaHantu) return const Color(0xFFF9E2AF);
+    return const Color(0xFFCBA6F7);
   }
 
   int get belumSync => data.where((t) => !t.synced).length + delIds.length;
@@ -324,18 +322,15 @@ class _KasirPageState extends State<KasirPage> {
   int get _totalTunai => _riwayat().where((t) => t.metode == 'Tunai').fold(0, (s, t) => s + t.nominal);
   int get _totalQris => _riwayat().where((t) => t.metode == 'QRIS').fold(0, (s, t) => s + t.nominal);
 
-  Future<Map<String, dynamic>> _upsert(Transaksi t) async {
-    return apiGet({'action': 'upsert', 'tab': tabKasir, 'id': t.id.toString(),
-      'tanggal': t.tanggal, 'jam': t.jam, 'nominal': t.nominal.toString(), 'metode': t.metode});
-  }
+  Future<Map<String, dynamic>> _upsert(Transaksi t) async => apiGet({'action': 'upsert', 'tab': tabKasir,
+    'id': t.id.toString(), 'tanggal': t.tanggal, 'jam': t.jam,
+    'nominal': t.nominal.toString(), 'metode': t.metode});
 
-  Future<Map<String, dynamic>> _delete(int id) async {
-    return apiGet({'action': 'delete', 'tab': tabKasir, 'id': id.toString()});
-  }
+  Future<Map<String, dynamic>> _delete(int id) async =>
+      apiGet({'action': 'delete', 'tab': tabKasir, 'id': id.toString()});
 
-  Future<Map<String, dynamic>> _listIds() async {
-    return apiGet({'action': 'list', 'tab': tabKasir});
-  }
+  Future<Map<String, dynamic>> _listIds() async =>
+      apiGet({'action': 'list', 'tab': tabKasir});
 
   Future<void> _cobaSync(Transaksi t) async {
     final r = await _upsert(t);
@@ -359,7 +354,7 @@ class _KasirPageState extends State<KasirPage> {
       for (final id in pd) {
         ke++; if (mounted) setState(() => progress = 'Hapus $ke/$total');
         final r = await _delete(id);
-        if (r['status'] == 'ok') {} else { sisa.add(id); gagal++; if (err.isEmpty) err = r['message'] ?? '?'; }
+        if (r['status'] != 'ok') { sisa.add(id); gagal++; if (err.isEmpty) err = r['message'] ?? '?'; }
         await Future.delayed(const Duration(milliseconds: 80));
       }
       for (final t in pt) {
@@ -372,6 +367,7 @@ class _KasirPageState extends State<KasirPage> {
       if (gagal == 0) {
         if (mounted) { setState(() { syncing = false; progress = ''; });
           if (!silent) _snack('✓ Sync berhasil', ok: true); }
+        _cekHantu();
         return;
       }
       if (!retry || attempt >= 5) {
@@ -384,10 +380,26 @@ class _KasirPageState extends State<KasirPage> {
     }
   }
 
+  void _snack(String m, {bool ok = false, bool err = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(m), duration: const Duration(seconds: 4),
+      backgroundColor: ok ? const Color(0xFF2D4F2D) : err ? const Color(0xFF7F3F3F) : null));
+  }
+
   Future<void> _resync() async {
+    final today = tglStr(DateTime.now());
     if (data.isEmpty && delIds.isEmpty) {
-      _snack('Data di HP kosong. Resinkronisasi dibatalkan untuk keamanan.', err: true);
-      return;
+      final ok = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
+        title: const Text('⚠ HP Kosong'),
+        content: Text('HP kosong. Hapus data hari ini ($today) di Sheets?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('BATAL')),
+          ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFF38BA8)),
+            onPressed: () => Navigator.pop(c, true),
+            child: const Text('HAPUS', style: TextStyle(color: Colors.black))),
+        ]));
+      if (ok != true) return;
     }
     stopResync = false;
     setState(() { syncing = true; progress = 'Ambil data...'; });
@@ -397,12 +409,18 @@ class _KasirPageState extends State<KasirPage> {
       _snack('Gagal: ${r['message']}', err: true);
       return;
     }
-    final idsSheets = List<int>.from(r['ids'] ?? []);
+    final listSheets = r['ids'] as List;
     final idsHp = data.map((t) => t.id).toSet();
-    final hantu = idsSheets.where((id) => !idsHp.contains(id)).toList();
+    final hantu = <int>[];
+    for (var item in listSheets) {
+      final id = (item['id'] as num).toInt();
+      final tgl = (item['tanggal'] ?? '').toString();
+      if (idsHp.contains(id)) continue;
+      if (tgl == today) hantu.add(id);
+    }
     if (hantu.isEmpty) {
-      setState(() { syncing = false; progress = ''; });
-      _snack('✓ Data sudah konsisten', ok: true);
+      setState(() { syncing = false; progress = ''; _adaHantu = false; });
+      _snack('✓ Tidak ada data tanggal ini yang perlu dihapus', ok: true);
       return;
     }
     int ok = 0, gagal = 0; String err = '';
@@ -416,16 +434,85 @@ class _KasirPageState extends State<KasirPage> {
     if (mounted) {
       setState(() { syncing = false; progress = ''; });
       if (stopResync) _snack('⏹ Dihentikan. Berhasil: $ok');
-      else if (gagal == 0) _snack('✓ Resinkronisasi selesai. $ok data hantu dihapus', ok: true);
+      else if (gagal == 0) _snack('✓ $ok data tanggal ini dihapus', ok: true);
       else _snack('Sebagian: $ok hapus, $gagal gagal. $err', err: true);
     }
+    _cekHantu();
   }
 
-  void _snack(String m, {bool ok = false, bool err = false}) {
+  Future<void> _resetRentang() async {
+    final range = await showDateRangePicker(context: context,
+      firstDate: DateTime(2020), lastDate: DateTime(2100),
+      helpText: 'PILIH RENTANG UNTUK RESET', saveText: 'PILIH', cancelText: 'BATAL',
+      builder: (c, ch) => Theme(data: ThemeData.dark().copyWith(
+        colorScheme: const ColorScheme.dark(primary: Color(0xFFF38BA8), onPrimary: Colors.black,
+          surface: Color(0xFF1E1E2E), onSurface: Colors.white)), child: ch!));
+    if (range == null) return;
+    final tgl1 = tglStr(range.start);
+    final tgl2 = tglStr(range.end);
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(m), duration: const Duration(seconds: 4),
-      backgroundColor: ok ? const Color(0xFF2D4F2D) : err ? const Color(0xFF7F3F3F) : null));
+    final konf = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
+      title: const Text('⚠ Konfirmasi RESET'),
+      content: Text('HAPUS data di Sheets ($tgl1 s/d $tgl2), lalu KIRIM ULANG dari HP.\n\nHasil: Sheets = HP untuk rentang itu.\n\nYakin?'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('BATAL')),
+        ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFF38BA8)),
+          onPressed: () => Navigator.pop(c, true),
+          child: const Text('RESET', style: TextStyle(color: Colors.black))),
+      ]));
+    if (konf != true) return;
+    setState(() { syncing = true; progress = 'Reset: hapus Sheets...'; });
+    final r = await _listIds();
+    if (r['status'] != 'ok') {
+      setState(() { syncing = false; progress = ''; });
+      _snack('Gagal: ${r['message']}', err: true); return;
+    }
+    final listSheets = r['ids'] as List;
+    final hapusIds = <int>[];
+    for (var item in listSheets) {
+      final id = (item['id'] as num).toInt();
+      final tgl = (item['tanggal'] ?? '').toString();
+      if (tgl.compareTo(tgl1) >= 0 && tgl.compareTo(tgl2) <= 0) hapusIds.add(id);
+    }
+    int ke = 0;
+    for (final id in hapusIds) {
+      ke++;
+      if (mounted) setState(() => progress = 'Hapus $ke/${hapusIds.length}...');
+      await _delete(id);
+      await Future.delayed(const Duration(milliseconds: 50));
+    }
+    setState(() {
+      progress = 'Kirim ulang dari HP...';
+      for (final t in data) {
+        if (t.tanggal.compareTo(tgl1) >= 0 && t.tanggal.compareTo(tgl2) <= 0) t.synced = false;
+      }
+    });
+    await _save();
+    setState(() { syncing = false; progress = ''; });
+    await _sync(silent: false, retry: true);
+    if (!mounted) return;
+    await showDialog(context: context, builder: (c) => AlertDialog(
+      title: const Text('✓ Reset Selesai'),
+      content: Text('Periode: $tgl1 s/d $tgl2\n\nDihapus: ${hapusIds.length} data\nDikirim ulang: selesai'),
+      actions: [TextButton(onPressed: () => Navigator.pop(c), child: const Text('OK'))]));
+    _cekHantu();
+  }
+
+  Future<void> _gantiMode() async {
+    final ok = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
+      title: const Text('Ganti Mode?'),
+      content: const Text('Ganti dari KASIR ke BENDAHARA?\n\nData lokal tidak hilang.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('BATAL')),
+        ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF89B4FA)),
+          onPressed: () => Navigator.pop(c, true),
+          child: const Text('GANTI', style: TextStyle(color: Colors.black))),
+      ]));
+    if (ok != true) return;
+    final p = await SharedPreferences.getInstance();
+    await p.setString('mode', 'bendahara');
+    if (!mounted) return;
+    Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const BendaharaPage()));
   }
 
   Future<void> _inputNominal(int n) async {
@@ -463,7 +550,8 @@ class _KasirPageState extends State<KasirPage> {
           Row(children: [
             Expanded(child: GestureDetector(onTap: () => setL(() => met = 'Tunai'),
               child: Container(padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(color: met == 'Tunai' ? const Color(0xFFA6E3A1) : const Color(0xFF45475A), borderRadius: BorderRadius.circular(8)),
+                decoration: BoxDecoration(color: met == 'Tunai' ? const Color(0xFFA6E3A1) : const Color(0xFF45475A),
+                  borderRadius: BorderRadius.circular(8)),
                 child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                   Icon(Icons.payments, size: 16, color: met == 'Tunai' ? Colors.black : Colors.white),
                   const SizedBox(width: 4),
@@ -471,7 +559,8 @@ class _KasirPageState extends State<KasirPage> {
             const SizedBox(width: 8),
             Expanded(child: GestureDetector(onTap: () => setL(() => met = 'QRIS'),
               child: Container(padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(color: met == 'QRIS' ? const Color(0xFF89B4FA) : const Color(0xFF45475A), borderRadius: BorderRadius.circular(8)),
+                decoration: BoxDecoration(color: met == 'QRIS' ? const Color(0xFF89B4FA) : const Color(0xFF45475A),
+                  borderRadius: BorderRadius.circular(8)),
                 child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                   Icon(Icons.qr_code, size: 16, color: met == 'QRIS' ? Colors.black : Colors.white),
                   const SizedBox(width: 4),
@@ -496,7 +585,7 @@ class _KasirPageState extends State<KasirPage> {
 
   Future<void> _hapus(Transaksi t) async {
     final ok = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
-      title: const Text('Konfirmasi Hapus'),
+      title: const Text('Hapus?'),
       content: Text('Hapus transaksi ${t.jam} - Rp ${rp(t.nominal)}?'),
       actions: [
         TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('BATAL')),
@@ -529,11 +618,11 @@ class _KasirPageState extends State<KasirPage> {
     String t1, t2;
     if (pilih == 'h') { t1 = tglStr(DateTime.now()); t2 = t1; }
     else {
-      final r = await showDateRangePicker(context: context,
-        firstDate: DateTime(2020), lastDate: DateTime(2100),
+      final r = await showDateRangePicker(context: context, firstDate: DateTime(2020), lastDate: DateTime(2100),
         initialDateRange: DateTimeRange(start: DateTime.now().subtract(const Duration(days: 7)), end: DateTime.now()),
         helpText: 'PILIH RENTANG', saveText: 'PILIH', cancelText: 'BATAL',
-        builder: (c, ch) => Theme(data: ThemeData.dark().copyWith(colorScheme: const ColorScheme.dark(primary: Color(0xFF89B4FA), onPrimary: Colors.black, surface: Color(0xFF1E1E2E), onSurface: Colors.white)), child: ch!));
+        builder: (c, ch) => Theme(data: ThemeData.dark().copyWith(colorScheme: const ColorScheme.dark(
+          primary: Color(0xFF89B4FA), onPrimary: Colors.black, surface: Color(0xFF1E1E2E), onSurface: Colors.white)), child: ch!));
       if (r == null) return;
       t1 = tglStr(r.start); t2 = tglStr(r.end);
     }
@@ -559,90 +648,110 @@ class _KasirPageState extends State<KasirPage> {
   @override
   Widget build(BuildContext context) {
     final r = _riwayat();
-    return Scaffold(
-      body: SafeArea(child: SingleChildScrollView(padding: const EdgeInsets.all(12), child: Column(children: [
-        SizedBox(width: double.infinity, height: 40, child: FittedBox(fit: BoxFit.scaleDown,
-          child: Text(APP_HEADER, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold)))),
-        const SizedBox(height: 8),
-        GestureDetector(
-          onLongPressStart: (_) => setState(() => showOmset = true),
-          onLongPressEnd: (_) => setState(() => showOmset = false),
-          onLongPressCancel: () => setState(() => showOmset = false),
-          child: Container(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            decoration: BoxDecoration(color: const Color(0xFF313244), borderRadius: BorderRadius.circular(12)),
-            child: showOmset
-              ? Column(children: [
-                  Text('Total hari ini: Rp ${rp(_totalHariIni)}', style: const TextStyle(fontSize: 20, color: Color(0xFFA6E3A1))),
-                  const SizedBox(height: 6),
-                  Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                    const Icon(Icons.payments, size: 16, color: Color(0xFFA6E3A1)), const SizedBox(width: 4),
-                    Text('Rp ${rp(_totalTunai)}', style: const TextStyle(fontSize: 14, color: Color(0xFFA6E3A1))),
-                    const SizedBox(width: 20),
-                    const Icon(Icons.qr_code, size: 16, color: Color(0xFF89B4FA)), const SizedBox(width: 4),
-                    Text('Rp ${rp(_totalQris)}', style: const TextStyle(fontSize: 14, color: Color(0xFF89B4FA)))]),
-                ])
-              : const Text('Total hari ini: ●●●●●●●', style: TextStyle(fontSize: 20, color: Color(0xFFA6E3A1)))),
+    return Scaffold(body: SafeArea(child: SingleChildScrollView(padding: const EdgeInsets.all(12), child: Column(children: [
+      SizedBox(width: double.infinity, height: 40, child: FittedBox(fit: BoxFit.scaleDown,
+        child: Text(APP_HEADER, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold)))),
+      const SizedBox(height: 8),
+      GestureDetector(
+        onLongPressStart: (_) => setState(() => showOmset = true),
+        onLongPressEnd: (_) => setState(() => showOmset = false),
+        onLongPressCancel: () => setState(() => showOmset = false),
+        child: Container(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(color: const Color(0xFF313244), borderRadius: BorderRadius.circular(12)),
+          child: showOmset
+            ? Column(children: [
+                Text('Total hari ini: Rp ${rp(_totalHariIni)}', style: const TextStyle(fontSize: 20, color: Color(0xFFA6E3A1))),
+                const SizedBox(height: 6),
+                Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  const Icon(Icons.payments, size: 16, color: Color(0xFFA6E3A1)), const SizedBox(width: 4),
+                  Text('Rp ${rp(_totalTunai)}', style: const TextStyle(fontSize: 14, color: Color(0xFFA6E3A1))),
+                  const SizedBox(width: 20),
+                  const Icon(Icons.qr_code, size: 16, color: Color(0xFF89B4FA)), const SizedBox(width: 4),
+                  Text('Rp ${rp(_totalQris)}', style: const TextStyle(fontSize: 14, color: Color(0xFF89B4FA)))]),
+              ])
+            : const Text('Total hari ini: ●●●●●●●', style: TextStyle(fontSize: 20, color: Color(0xFFA6E3A1)))),
+      ),
+      const SizedBox(height: 2),
+      const Text('(tahan untuk lihat omset)', style: TextStyle(fontSize: 10, color: Colors.white38)),
+      const SizedBox(height: 6),
+      Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+        Icon(belumSync == 0 ? Icons.cloud_done : Icons.cloud_off,
+          color: _sedangCek ? const Color(0xFF89B4FA) : belumSync == 0 ? const Color(0xFFA6E3A1) : const Color(0xFFF9E2AF),
+          size: 16),
+        const SizedBox(width: 4),
+        Flexible(child: Text(syncing && progress.isNotEmpty ? progress
+            : belumSync == 0 ? 'Semua tersinkron ke Sheets' : '$belumSync data belum tersinkron',
+          style: TextStyle(fontSize: 12, color: _sedangCek ? const Color(0xFF89B4FA)
+              : belumSync == 0 ? const Color(0xFFA6E3A1) : const Color(0xFFF9E2AF)),
+          overflow: TextOverflow.ellipsis)),
+        const SizedBox(width: 4),
+        PopupMenuButton<String>(
+          icon: const Icon(Icons.more_vert, color: Colors.white70, size: 20),
+          onSelected: (v) {
+            if (v == 'reset') _resetRentang();
+            else if (v == 'mode') _gantiMode();
+          },
+          itemBuilder: (c) => const [
+            PopupMenuItem(value: 'reset', child: Row(children: [
+              Icon(Icons.warning, color: Color(0xFFF38BA8), size: 18),
+              SizedBox(width: 8), Text('Reset Rentang')])),
+            PopupMenuItem(value: 'mode', child: Row(children: [
+              Icon(Icons.swap_horiz, color: Color(0xFF89B4FA), size: 18),
+              SizedBox(width: 8), Text('Ganti Mode')])),
+          ],
         ),
-        const SizedBox(height: 2),
-        const Text('(tahan untuk lihat omset)', style: TextStyle(fontSize: 10, color: Colors.white38)),
-        const SizedBox(height: 6),
-        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Icon(belumSync == 0 ? Icons.cloud_done : Icons.cloud_off,
-            color: syncing ? const Color(0xFF89B4FA) : belumSync == 0 ? const Color(0xFFA6E3A1) : const Color(0xFFF9E2AF), size: 16),
-          const SizedBox(width: 4),
-          Flexible(child: Text(syncing && progress.isNotEmpty ? progress : belumSync == 0 ? 'Semua tersinkron ke Sheets' : '$belumSync data belum tersinkron',
-            style: TextStyle(fontSize: 12, color: syncing ? const Color(0xFF89B4FA) : belumSync == 0 ? const Color(0xFFA6E3A1) : const Color(0xFFF9E2AF)),
-            overflow: TextOverflow.ellipsis)),
+        const SizedBox(width: 4),
+        GestureDetector(
+          onTap: () { if (syncing) { setState(() => stopResync = true); } else { _resync(); } },
+          child: Container(padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(color: _syncColor.withOpacity(0.2), borderRadius: BorderRadius.circular(20)),
+            child: Icon(syncing ? Icons.stop_circle : Icons.sync, size: 22, color: _syncColor))),
+      ]),
+      if (belumSync > 0)
+        Padding(padding: const EdgeInsets.only(top: 8), child: SizedBox(width: double.infinity,
+          child: ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFF9E2AF), padding: const EdgeInsets.all(10)),
+            onPressed: syncing ? null : () => _sync(retry: true),
+            icon: syncing ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                : const Icon(Icons.sync, color: Colors.black),
+            label: Text(syncing ? 'SYNC $progress' : 'SYNC SEKARANG ($belumSync)',
+                style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold))))),
+      const SizedBox(height: 16),
+      GridView.count(crossAxisCount: 2, shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
+        childAspectRatio: 2.5, mainAxisSpacing: 8, crossAxisSpacing: 8,
+        children: nominals.map((n) => ElevatedButton(
+          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF89B4FA)),
+          onPressed: () => _inputNominal(n),
+          child: Text(rp(n), style: const TextStyle(fontSize: 20, color: Colors.black, fontWeight: FontWeight.bold)))).toList()),
+      const SizedBox(height: 20),
+      const Text('RIWAYAT HARI INI', style: TextStyle(fontSize: 14, color: Color(0xFF89B4FA))),
+      const SizedBox(height: 8),
+      if (r.isEmpty) const Padding(padding: EdgeInsets.all(20), child: Text('Belum ada transaksi', style: TextStyle(color: Colors.grey)))
+      else ...r.asMap().entries.map((e) => Container(
+        margin: const EdgeInsets.only(bottom: 6), padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(color: const Color(0xFF313244), borderRadius: BorderRadius.circular(8)),
+        child: Row(children: [
+          Icon(e.value.synced ? Icons.cloud_done : Icons.cloud_off,
+            color: e.value.synced ? const Color(0xFFA6E3A1) : const Color(0xFFF9E2AF), size: 16),
           const SizedBox(width: 8),
-          GestureDetector(
-            onTap: () { if (syncing) { setState(() => stopResync = true); } else { _resync(); } },
-            child: Container(padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(color: syncing ? const Color(0xFFF38BA8).withOpacity(0.2) : const Color(0xFFCBA6F7).withOpacity(0.2), borderRadius: BorderRadius.circular(20)),
-              child: Icon(syncing ? Icons.stop_circle : Icons.sync, size: 22,
-                color: syncing ? const Color(0xFFF38BA8) : const Color(0xFFCBA6F7))))]),
-        if (belumSync > 0)
-          Padding(padding: const EdgeInsets.only(top: 8), child: SizedBox(width: double.infinity,
-            child: ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFF9E2AF), padding: const EdgeInsets.all(10)),
-              onPressed: syncing ? null : () => _sync(retry: true),
-              icon: syncing ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black)) : const Icon(Icons.sync, color: Colors.black),
-              label: Text(syncing ? 'SYNC $progress' : 'SYNC SEKARANG ($belumSync)', style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold))))),
-        const SizedBox(height: 16),
-        GridView.count(crossAxisCount: 2, shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
-          childAspectRatio: 2.5, mainAxisSpacing: 8, crossAxisSpacing: 8,
-          children: nominals.map((n) => ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF89B4FA)),
-            onPressed: () => _inputNominal(n),
-            child: Text(rp(n), style: const TextStyle(fontSize: 20, color: Colors.black, fontWeight: FontWeight.bold)))).toList()),
-        const SizedBox(height: 20),
-        const Text('RIWAYAT HARI INI', style: TextStyle(fontSize: 14, color: Color(0xFF89B4FA))),
-        const SizedBox(height: 8),
-        if (r.isEmpty) const Padding(padding: EdgeInsets.all(20), child: Text('Belum ada transaksi', style: TextStyle(color: Colors.grey)))
-        else ...r.asMap().entries.map((e) => Container(
-          margin: const EdgeInsets.only(bottom: 6), padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-          decoration: BoxDecoration(color: const Color(0xFF313244), borderRadius: BorderRadius.circular(8)),
-          child: Row(children: [
-            Icon(e.value.synced ? Icons.cloud_done : Icons.cloud_off, color: e.value.synced ? const Color(0xFFA6E3A1) : const Color(0xFFF9E2AF), size: 16),
-            const SizedBox(width: 8),
-            Icon(e.value.metode == 'QRIS' ? Icons.qr_code : Icons.payments, size: 18, color: e.value.metode == 'QRIS' ? const Color(0xFF89B4FA) : const Color(0xFFA6E3A1)),
-            const SizedBox(width: 6),
-            Expanded(child: Text('${e.key+1}. ${e.value.jam}  —  Rp ${rp(e.value.nominal)}', style: const TextStyle(color: Colors.white))),
-            IconButton(icon: const Icon(Icons.edit, color: Color(0xFF89B4FA)), onPressed: () => _edit(e.value)),
-            IconButton(icon: const Icon(Icons.delete, color: Color(0xFFF38BA8)), onPressed: () => _hapus(e.value))]))),
-        const SizedBox(height: 16),
-        SizedBox(width: double.infinity, child: ElevatedButton.icon(
-          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF89B4FA), padding: const EdgeInsets.all(14)),
-          onPressed: _openLaporan,
-          icon: const Icon(Icons.bar_chart, color: Colors.black),
-          label: const Text('LAPORAN PENJUALAN', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)))),
-        const SizedBox(height: 8),
-        SizedBox(width: double.infinity, child: ElevatedButton.icon(
-          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFA6E3A1), padding: const EdgeInsets.all(16)),
-          onPressed: _export,
-          icon: const Icon(Icons.download, color: Colors.black),
-          label: const Text('EXPORT KE CSV', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)))),
-      ]))),
-    );
+          Icon(e.value.metode == 'QRIS' ? Icons.qr_code : Icons.payments, size: 18,
+            color: e.value.metode == 'QRIS' ? const Color(0xFF89B4FA) : const Color(0xFFA6E3A1)),
+          const SizedBox(width: 6),
+          Expanded(child: Text('${e.key+1}. ${e.value.jam}  —  Rp ${rp(e.value.nominal)}',
+            style: const TextStyle(color: Colors.white))),
+          IconButton(icon: const Icon(Icons.edit, color: Color(0xFF89B4FA)), onPressed: () => _edit(e.value)),
+          IconButton(icon: const Icon(Icons.delete, color: Color(0xFFF38BA8)), onPressed: () => _hapus(e.value))]))),
+      const SizedBox(height: 16),
+      SizedBox(width: double.infinity, child: ElevatedButton.icon(
+        style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF89B4FA), padding: const EdgeInsets.all(14)),
+        onPressed: _openLaporan, icon: const Icon(Icons.bar_chart, color: Colors.black),
+        label: const Text('LAPORAN PENJUALAN', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)))),
+      const SizedBox(height: 8),
+      SizedBox(width: double.infinity, child: ElevatedButton.icon(
+        style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFA6E3A1), padding: const EdgeInsets.all(16)),
+        onPressed: _export, icon: const Icon(Icons.download, color: Colors.black),
+        label: const Text('EXPORT KE CSV', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)))),
+    ]))));
   }
 }
 
@@ -675,9 +784,11 @@ class _LaporanPageState extends State<LaporanPage> {
   Future<void> _pilih() async {
     final now = DateTime.now();
     final r = await showDateRangePicker(context: context, firstDate: DateTime(2020), lastDate: DateTime(2100),
-      initialDateRange: (t1 != null && t2 != null) ? DateTimeRange(start: t1!, end: t2!) : DateTimeRange(start: now.subtract(const Duration(days: 7)), end: now),
+      initialDateRange: (t1 != null && t2 != null) ? DateTimeRange(start: t1!, end: t2!)
+          : DateTimeRange(start: now.subtract(const Duration(days: 7)), end: now),
       helpText: 'PILIH RENTANG', saveText: 'PILIH', cancelText: 'BATAL',
-      builder: (c, ch) => Theme(data: ThemeData.dark().copyWith(colorScheme: const ColorScheme.dark(primary: Color(0xFF89B4FA), onPrimary: Colors.black, surface: Color(0xFF1E1E2E), onSurface: Colors.white)), child: ch!));
+      builder: (c, ch) => Theme(data: ThemeData.dark().copyWith(colorScheme: const ColorScheme.dark(
+        primary: Color(0xFF89B4FA), onPrimary: Colors.black, surface: Color(0xFF1E1E2E), onSurface: Colors.white)), child: ch!));
     if (r == null) return;
     setState(() { t1 = r.start; t2 = r.end; });
   }
@@ -764,7 +875,7 @@ class BendaharaPage extends StatefulWidget {
   State<BendaharaPage> createState() => _BendaharaPageState();
 }
 
-class _BendaharaPageState extends State<BendaharaPage> {
+class _BendaharaPageState extends State<BendaharaPage> with WidgetsBindingObserver {
   List<Pengeluaran> peng = [];
   List<PemasukanLain> masuk = [];
   List<int> pengDel = [];
@@ -773,11 +884,28 @@ class _BendaharaPageState extends State<BendaharaPage> {
   String progress = '';
   String filterPeriode = 'bulan';
   DateTime? customT1, customT2;
-
   int saldoKasir = 0, saldoLain = 0, saldoKeluar = 0;
+  bool _adaHantu = false;
+  bool _sedangCek = false;
+  bool _offline = false;
 
   @override
-  void initState() { super.initState(); _load(); }
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _load();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _cekHantu();
+  }
 
   Future<void> _load() async {
     final p = await SharedPreferences.getInstance();
@@ -792,6 +920,7 @@ class _BendaharaPageState extends State<BendaharaPage> {
     setState(() {});
     _loadSaldo();
     _sync(silent: true, retry: false);
+    _cekHantu();
   }
 
   Future<void> _save() async {
@@ -811,6 +940,31 @@ class _BendaharaPageState extends State<BendaharaPage> {
         saldoKeluar = (r['totalKeluar'] ?? 0).toInt();
       });
     }
+  }
+
+  Future<void> _cekHantu() async {
+    if (_sedangCek || syncing) return;
+    setState(() { _sedangCek = true; _offline = false; });
+    final r = await apiGet({'action': 'cek-hantu', 'mode': 'bendahara', 'hari': '7'});
+    if (!mounted) return;
+    if (r['status'] == 'ok') {
+      final idsP = ((r['idsP'] ?? []) as List).map((e) => (e['id'] as num).toInt()).toSet();
+      final idsM = ((r['idsM'] ?? []) as List).map((e) => (e['id'] as num).toInt()).toSet();
+      final hpP = peng.map((t) => t.id).toSet();
+      final hpM = masuk.map((t) => t.id).toSet();
+      final hP = idsP.where((id) => !hpP.contains(id)).toList();
+      final hM = idsM.where((id) => !hpM.contains(id)).toList();
+      setState(() { _adaHantu = hP.isNotEmpty || hM.isNotEmpty; _sedangCek = false; });
+    } else {
+      setState(() { _sedangCek = false; _offline = true; });
+    }
+  }
+
+  Color get _syncColor {
+    if (_sedangCek || syncing) return const Color(0xFF89B4FA);
+    if (_offline) return Colors.grey;
+    if (_adaHantu) return const Color(0xFFF9E2AF);
+    return const Color(0xFFCBA6F7);
   }
 
   bool _inPeriode(String tgl) {
@@ -868,13 +1022,13 @@ class _BendaharaPageState extends State<BendaharaPage> {
       for (final id in pd) {
         ke++; if (mounted) setState(() => progress = 'Hapus PG $ke/$total');
         final r = await _delPeng(id);
-        if (r['status'] == 'ok') {} else { sisaPd.add(id); gagal++; if (err.isEmpty) err = r['message'] ?? '?'; }
+        if (r['status'] != 'ok') { sisaPd.add(id); gagal++; if (err.isEmpty) err = r['message'] ?? '?'; }
         await Future.delayed(const Duration(milliseconds: 80));
       }
       for (final id in md) {
         ke++; if (mounted) setState(() => progress = 'Hapus PM $ke/$total');
         final r = await _delMasuk(id);
-        if (r['status'] == 'ok') {} else { sisaMd.add(id); gagal++; if (err.isEmpty) err = r['message'] ?? '?'; }
+        if (r['status'] != 'ok') { sisaMd.add(id); gagal++; if (err.isEmpty) err = r['message'] ?? '?'; }
         await Future.delayed(const Duration(milliseconds: 80));
       }
       for (final t in pn) {
@@ -894,6 +1048,7 @@ class _BendaharaPageState extends State<BendaharaPage> {
       if (gagal == 0) {
         if (mounted) { setState(() { syncing = false; progress = ''; });
           if (!silent) _snack('✓ Sync berhasil', ok: true); }
+        _cekHantu();
         return;
       }
       if (!retry || att >= 5) {
@@ -907,29 +1062,46 @@ class _BendaharaPageState extends State<BendaharaPage> {
   }
 
   Future<void> _resync() async {
+    final today = tglStr(DateTime.now());
     if (peng.isEmpty && masuk.isEmpty && pengDel.isEmpty && masukDel.isEmpty) {
-      _snack('Data di HP kosong. Resinkronisasi dibatalkan untuk keamanan.', err: true);
-      return;
+      final ok = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
+        title: const Text('⚠ HP Kosong'),
+        content: Text('HP kosong. Hapus data hari ini ($today) di Sheets?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('BATAL')),
+          ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFF38BA8)),
+            onPressed: () => Navigator.pop(c, true),
+            child: const Text('HAPUS', style: TextStyle(color: Colors.black))),
+        ]));
+      if (ok != true) return;
     }
     setState(() { syncing = true; progress = 'Ambil data...'; });
     final rP = await _listPeng();
     final rM = await _listMasuk();
     if (rP['status'] != 'ok' || rM['status'] != 'ok') {
       setState(() { syncing = false; progress = ''; });
-      _snack('Gagal ambil data', err: true);
-      return;
+      _snack('Gagal ambil data', err: true); return;
     }
-    final idsP = List<int>.from(rP['ids'] ?? []);
-    final idsM = List<int>.from(rM['ids'] ?? []);
     final hpP = peng.map((t) => t.id).toSet();
     final hpM = masuk.map((t) => t.id).toSet();
-    final hantuP = idsP.where((id) => !hpP.contains(id)).toList();
-    final hantuM = idsM.where((id) => !hpM.contains(id)).toList();
+    final hantuP = <int>[];
+    for (var item in (rP['ids'] as List)) {
+      final id = (item['id'] as num).toInt();
+      final tgl = (item['tanggal'] ?? '').toString();
+      if (hpP.contains(id)) continue;
+      if (tgl == today) hantuP.add(id);
+    }
+    final hantuM = <int>[];
+    for (var item in (rM['ids'] as List)) {
+      final id = (item['id'] as num).toInt();
+      final tgl = (item['tanggal'] ?? '').toString();
+      if (hpM.contains(id)) continue;
+      if (tgl == today) hantuM.add(id);
+    }
     final total = hantuP.length + hantuM.length;
     if (total == 0) {
-      setState(() { syncing = false; progress = ''; });
-      _snack('✓ Data sudah konsisten', ok: true);
-      return;
+      setState(() { syncing = false; progress = ''; _adaHantu = false; });
+      _snack('✓ Tidak ada data tanggal ini yang perlu dihapus', ok: true); return;
     }
     int ok = 0, gagal = 0; String err = ''; int ke = 0;
     for (final id in hantuP) {
@@ -946,10 +1118,101 @@ class _BendaharaPageState extends State<BendaharaPage> {
     }
     if (mounted) {
       setState(() { syncing = false; progress = ''; });
-      if (gagal == 0) _snack('✓ Resinkronisasi selesai. $ok hantu dihapus', ok: true);
+      if (gagal == 0) _snack('✓ $ok data tanggal ini dihapus', ok: true);
       else _snack('Sebagian: $ok hapus, $gagal gagal. $err', err: true);
     }
     _loadSaldo();
+    _cekHantu();
+  }
+
+  Future<void> _resetRentang() async {
+    final range = await showDateRangePicker(context: context,
+      firstDate: DateTime(2020), lastDate: DateTime(2100),
+      helpText: 'PILIH RENTANG UNTUK RESET', saveText: 'PILIH', cancelText: 'BATAL',
+      builder: (c, ch) => Theme(data: ThemeData.dark().copyWith(
+        colorScheme: const ColorScheme.dark(primary: Color(0xFFF38BA8), onPrimary: Colors.black,
+          surface: Color(0xFF1E1E2E), onSurface: Colors.white)), child: ch!));
+    if (range == null) return;
+    final tgl1 = tglStr(range.start);
+    final tgl2 = tglStr(range.end);
+    if (!mounted) return;
+    final konf = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
+      title: const Text('⚠ Konfirmasi RESET'),
+      content: Text('HAPUS data di Sheets ($tgl1 s/d $tgl2), lalu KIRIM ULANG dari HP.\n\nYakin?'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('BATAL')),
+        ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFF38BA8)),
+          onPressed: () => Navigator.pop(c, true),
+          child: const Text('RESET', style: TextStyle(color: Colors.black))),
+      ]));
+    if (konf != true) return;
+    setState(() { syncing = true; progress = 'Reset: hapus Sheets...'; });
+    final rP = await _listPeng();
+    final rM = await _listMasuk();
+    if (rP['status'] != 'ok' || rM['status'] != 'ok') {
+      setState(() { syncing = false; progress = ''; });
+      _snack('Gagal ambil data', err: true); return;
+    }
+    int ke = 0;
+    for (var item in (rP['ids'] as List)) {
+      final id = (item['id'] as num).toInt();
+      final tgl = (item['tanggal'] ?? '').toString();
+      if (tgl.compareTo(tgl1) >= 0 && tgl.compareTo(tgl2) <= 0) {
+        ke++; if (mounted) setState(() => progress = 'Hapus PG $ke...');
+        await _delPeng(id);
+        await Future.delayed(const Duration(milliseconds: 50));
+      }
+    }
+    for (var item in (rM['ids'] as List)) {
+      final id = (item['id'] as num).toInt();
+      final tgl = (item['tanggal'] ?? '').toString();
+      if (tgl.compareTo(tgl1) >= 0 && tgl.compareTo(tgl2) <= 0) {
+        ke++; if (mounted) setState(() => progress = 'Hapus PM $ke...');
+        await _delMasuk(id);
+        await Future.delayed(const Duration(milliseconds: 50));
+      }
+    }
+    setState(() {
+      progress = 'Kirim ulang dari HP...';
+      for (final t in peng) {
+        if (t.tanggal.compareTo(tgl1) >= 0 && t.tanggal.compareTo(tgl2) <= 0) t.synced = false;
+      }
+      for (final t in masuk) {
+        if (t.tanggal.compareTo(tgl1) >= 0 && t.tanggal.compareTo(tgl2) <= 0) t.synced = false;
+      }
+    });
+    await _save();
+    setState(() { syncing = false; progress = ''; });
+    await _sync(silent: false, retry: true);
+    if (!mounted) return;
+    await showDialog(context: context, builder: (c) => AlertDialog(
+      title: const Text('✓ Reset Selesai'),
+      content: Text('Periode: $tgl1 s/d $tgl2\n\nSheets sudah disamakan dengan HP.'),
+      actions: [TextButton(onPressed: () => Navigator.pop(c), child: const Text('OK'))]));
+    _loadSaldo();
+    _cekHantu();
+  }
+
+  Future<void> _gantiMode() async {
+    final ok = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
+      title: const Text('Ganti Mode?'),
+      content: const Text('Ganti dari BENDAHARA ke KASIR?\n\nData lokal tidak hilang.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('BATAL')),
+        ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF89B4FA)),
+          onPressed: () => Navigator.pop(c, true),
+          child: const Text('GANTI', style: TextStyle(color: Colors.black))),
+      ]));
+    if (ok != true) return;
+    final p = await SharedPreferences.getInstance();
+    await p.setString('mode', 'kasir');
+    if (!mounted) return;
+    final nama = p.getString('namaKasir');
+    if (nama == null || nama.isEmpty) {
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const SetupKasirPage()));
+    } else {
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const KasirPage()));
+    }
   }
 
   void _snack(String m, {bool ok = false, bool err = false}) {
@@ -1140,7 +1403,8 @@ class _BendaharaPageState extends State<BendaharaPage> {
     if (pilih == 'custom') {
       final r = await showDateRangePicker(context: context, firstDate: DateTime(2020), lastDate: DateTime(2100),
         helpText: 'PILIH RENTANG', saveText: 'PILIH', cancelText: 'BATAL',
-        builder: (c, ch) => Theme(data: ThemeData.dark().copyWith(colorScheme: const ColorScheme.dark(primary: Color(0xFF89B4FA), onPrimary: Colors.black, surface: Color(0xFF1E1E2E), onSurface: Colors.white)), child: ch!));
+        builder: (c, ch) => Theme(data: ThemeData.dark().copyWith(colorScheme: const ColorScheme.dark(
+          primary: Color(0xFF89B4FA), onPrimary: Colors.black, surface: Color(0xFF1E1E2E), onSurface: Colors.white)), child: ch!));
       if (r == null) return;
       setState(() { filterPeriode = 'custom'; customT1 = r.start; customT2 = r.end; });
     } else {
@@ -1163,106 +1427,133 @@ class _BendaharaPageState extends State<BendaharaPage> {
   Widget build(BuildContext context) {
     final pf = _pengFiltered;
     final mf = _masukFiltered;
-    return Scaffold(
-      body: SafeArea(child: SingleChildScrollView(padding: const EdgeInsets.all(12), child: Column(children: [
+    return Scaffold(body: SafeArea(child: SingleChildScrollView(padding: const EdgeInsets.all(12), child: Column(children: [
+      Row(mainAxisAlignment: MainAxisAlignment.center, children: [
         const Text('BENDAHARA', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 12),
-        GestureDetector(onTap: _lihatSaldo, child: Container(
-          padding: const EdgeInsets.all(14), width: double.infinity,
-          decoration: BoxDecoration(color: const Color(0xFF313244), borderRadius: BorderRadius.circular(12)),
-          child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: const [Text('💰 ', style: TextStyle(fontSize: 16)), Text('SALDO', style: TextStyle(color: Color(0xFFA6E3A1)))]),
-              const SizedBox(height: 4),
-              Text('Rp ${rp(saldoKasir + saldoLain - saldoKeluar)}', style: const TextStyle(fontSize: 20, color: Colors.white, fontWeight: FontWeight.bold)),
-            ]),
-            const Icon(Icons.remove_red_eye, color: Color(0xFF89B4FA), size: 28),
-          ]))),
-        const SizedBox(height: 10),
-        Container(padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(color: const Color(0xFF313244), borderRadius: BorderRadius.circular(12)),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              Row(children: const [Text('📉 ', style: TextStyle(fontSize: 16)), Text('PENGELUARAN', style: TextStyle(color: Color(0xFFF38BA8)))]),
-              GestureDetector(onTap: _pilihFilter, child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(color: const Color(0xFF45475A), borderRadius: BorderRadius.circular(8)),
-                child: Row(children: [Text(_filterLabel, style: const TextStyle(fontSize: 12, color: Color(0xFF89B4FA))), const Icon(Icons.arrow_drop_down, size: 18, color: Color(0xFF89B4FA))]))),
-            ]),
-            const SizedBox(height: 6),
-            Text('Rp ${rp(_totalPeng)}', style: const TextStyle(fontSize: 20, color: Colors.white, fontWeight: FontWeight.bold)),
-          ])),
-        const SizedBox(height: 10),
-        Row(children: [
-          Expanded(flex: 70, child: ElevatedButton.icon(
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFF38BA8), padding: const EdgeInsets.symmetric(vertical: 14)),
-            onPressed: _tambahPeng,
-            icon: const Icon(Icons.add, color: Colors.black),
-            label: const Text('TAMBAH PENGELUARAN', style: TextStyle(color: Colors.black, fontSize: 12, fontWeight: FontWeight.bold)))),
+        const SizedBox(width: 8),
+        PopupMenuButton<String>(
+          icon: const Icon(Icons.more_vert, color: Colors.white70, size: 20),
+          onSelected: (v) {
+            if (v == 'reset') _resetRentang();
+            else if (v == 'mode') _gantiMode();
+          },
+          itemBuilder: (c) => const [
+            PopupMenuItem(value: 'reset', child: Row(children: [
+              Icon(Icons.warning, color: Color(0xFFF38BA8), size: 18),
+              SizedBox(width: 8), Text('Reset Rentang')])),
+            PopupMenuItem(value: 'mode', child: Row(children: [
+              Icon(Icons.swap_horiz, color: Color(0xFF89B4FA), size: 18),
+              SizedBox(width: 8), Text('Ganti Mode')])),
+          ],
+        ),
+      ]),
+      const SizedBox(height: 12),
+      GestureDetector(onTap: _lihatSaldo, child: Container(
+        padding: const EdgeInsets.all(14), width: double.infinity,
+        decoration: BoxDecoration(color: const Color(0xFF313244), borderRadius: BorderRadius.circular(12)),
+        child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: const [Text('💰 ', style: TextStyle(fontSize: 16)), Text('SALDO', style: TextStyle(color: Color(0xFFA6E3A1)))]),
+            const SizedBox(height: 4),
+            Text('Rp ${rp(saldoKasir + saldoLain - saldoKeluar)}',
+              style: const TextStyle(fontSize: 20, color: Colors.white, fontWeight: FontWeight.bold)),
+          ]),
+          const Icon(Icons.remove_red_eye, color: Color(0xFF89B4FA), size: 28),
+        ]))),
+      const SizedBox(height: 10),
+      Container(padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(color: const Color(0xFF313244), borderRadius: BorderRadius.circular(12)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+            Row(children: const [Text('📉 ', style: TextStyle(fontSize: 16)), Text('PENGELUARAN', style: TextStyle(color: Color(0xFFF38BA8)))]),
+            GestureDetector(onTap: _pilihFilter, child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(color: const Color(0xFF45475A), borderRadius: BorderRadius.circular(8)),
+              child: Row(children: [Text(_filterLabel, style: const TextStyle(fontSize: 12, color: Color(0xFF89B4FA))),
+                const Icon(Icons.arrow_drop_down, size: 18, color: Color(0xFF89B4FA))]))),
+          ]),
+          const SizedBox(height: 6),
+          Text('Rp ${rp(_totalPeng)}', style: const TextStyle(fontSize: 20, color: Colors.white, fontWeight: FontWeight.bold)),
+        ])),
+      const SizedBox(height: 10),
+      Row(children: [
+        Expanded(flex: 70, child: ElevatedButton.icon(
+          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFF38BA8), padding: const EdgeInsets.symmetric(vertical: 14)),
+          onPressed: _tambahPeng,
+          icon: const Icon(Icons.add, color: Colors.black),
+          label: const Text('TAMBAH PENGELUARAN', style: TextStyle(color: Colors.black, fontSize: 12, fontWeight: FontWeight.bold)))),
+        const SizedBox(width: 6),
+        Expanded(flex: 30, child: ElevatedButton(
+          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF89B4FA), padding: const EdgeInsets.symmetric(vertical: 14)),
+          onPressed: _tambahMasuk,
+          child: const Text('➕ Lain', style: TextStyle(color: Colors.black, fontSize: 12, fontWeight: FontWeight.bold)))),
+      ]),
+      const SizedBox(height: 10),
+      Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+        Icon(belumSync == 0 ? Icons.cloud_done : Icons.cloud_off,
+          color: _sedangCek ? const Color(0xFF89B4FA) : belumSync == 0 ? const Color(0xFFA6E3A1) : const Color(0xFFF9E2AF), size: 16),
+        const SizedBox(width: 4),
+        Flexible(child: Text(syncing && progress.isNotEmpty ? progress
+            : belumSync == 0 ? 'Semua tersinkron' : '$belumSync data pending',
+          style: TextStyle(fontSize: 12, color: _sedangCek ? const Color(0xFF89B4FA)
+              : belumSync == 0 ? const Color(0xFFA6E3A1) : const Color(0xFFF9E2AF)),
+          overflow: TextOverflow.ellipsis)),
+        const SizedBox(width: 8),
+        GestureDetector(onTap: () { if (!syncing) _resync(); },
+          child: Container(padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(color: _syncColor.withOpacity(0.2), borderRadius: BorderRadius.circular(20)),
+            child: const Icon(Icons.sync, size: 22, color: Color(0xFFCBA6F7)))),
+      ]),
+      if (belumSync > 0)
+        Padding(padding: const EdgeInsets.only(top: 8), child: SizedBox(width: double.infinity,
+          child: ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFF9E2AF), padding: const EdgeInsets.all(10)),
+            onPressed: syncing ? null : () => _sync(retry: true),
+            icon: syncing ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                : const Icon(Icons.sync, color: Colors.black),
+            label: Text(syncing ? 'SYNC $progress' : 'SYNC SEKARANG ($belumSync)',
+              style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold))))),
+      const SizedBox(height: 16),
+      Align(alignment: Alignment.centerLeft, child: Text('DAFTAR PENGELUARAN (${pf.length})',
+        style: const TextStyle(fontSize: 13, color: Color(0xFF89B4FA)))),
+      const SizedBox(height: 8),
+      if (pf.isEmpty) const Padding(padding: EdgeInsets.all(12), child: Text('Belum ada pengeluaran', style: TextStyle(color: Colors.grey)))
+      else ...pf.map((t) => Container(
+        margin: const EdgeInsets.only(bottom: 6), padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(color: const Color(0xFF313244), borderRadius: BorderRadius.circular(8)),
+        child: Row(children: [
+          Icon(t.synced ? Icons.cloud_done : Icons.cloud_off,
+            color: t.synced ? const Color(0xFFA6E3A1) : const Color(0xFFF9E2AF), size: 14),
           const SizedBox(width: 6),
-          Expanded(flex: 30, child: ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF89B4FA), padding: const EdgeInsets.symmetric(vertical: 14)),
-            onPressed: _tambahMasuk,
-            child: const Text('➕ Lain', style: TextStyle(color: Colors.black, fontSize: 12, fontWeight: FontWeight.bold)))),
-        ]),
-        const SizedBox(height: 10),
-        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Icon(belumSync == 0 ? Icons.cloud_done : Icons.cloud_off,
-            color: syncing ? const Color(0xFF89B4FA) : belumSync == 0 ? const Color(0xFFA6E3A1) : const Color(0xFFF9E2AF), size: 16),
-          const SizedBox(width: 4),
-          Flexible(child: Text(syncing && progress.isNotEmpty ? progress : belumSync == 0 ? 'Semua tersinkron' : '$belumSync data pending',
-            style: TextStyle(fontSize: 12, color: syncing ? const Color(0xFF89B4FA) : belumSync == 0 ? const Color(0xFFA6E3A1) : const Color(0xFFF9E2AF)),
-            overflow: TextOverflow.ellipsis)),
-          const SizedBox(width: 8),
-          GestureDetector(onTap: () { if (!syncing) _resync(); },
-            child: Container(padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(color: const Color(0xFFCBA6F7).withOpacity(0.2), borderRadius: BorderRadius.circular(20)),
-              child: const Icon(Icons.sync, size: 22, color: Color(0xFFCBA6F7))))]),
-        if (belumSync > 0)
-          Padding(padding: const EdgeInsets.only(top: 8), child: SizedBox(width: double.infinity,
-            child: ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFF9E2AF), padding: const EdgeInsets.all(10)),
-              onPressed: syncing ? null : () => _sync(retry: true),
-              icon: syncing ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black)) : const Icon(Icons.sync, color: Colors.black),
-              label: Text(syncing ? 'SYNC $progress' : 'SYNC SEKARANG ($belumSync)', style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold))))),
-        const SizedBox(height: 16),
-        Align(alignment: Alignment.centerLeft, child: Text('DAFTAR PENGELUARAN (${pf.length})', style: const TextStyle(fontSize: 13, color: Color(0xFF89B4FA)))),
-        const SizedBox(height: 8),
-        if (pf.isEmpty) const Padding(padding: EdgeInsets.all(12), child: Text('Belum ada pengeluaran', style: TextStyle(color: Colors.grey)))
-        else ...pf.map((t) => Container(
-          margin: const EdgeInsets.only(bottom: 6), padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(color: const Color(0xFF313244), borderRadius: BorderRadius.circular(8)),
-          child: Row(children: [
-            Icon(t.synced ? Icons.cloud_done : Icons.cloud_off, color: t.synced ? const Color(0xFFA6E3A1) : const Color(0xFFF9E2AF), size: 14),
-            const SizedBox(width: 6),
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('${fmtTglPendek(t.tanggal)} - ${t.keterangan}', style: const TextStyle(color: Colors.white, fontSize: 13)),
-              Text('Rp ${rp(t.nominal)}', style: const TextStyle(color: Color(0xFFF38BA8), fontSize: 13, fontWeight: FontWeight.bold))])),
-            IconButton(icon: const Icon(Icons.edit, size: 20, color: Color(0xFF89B4FA)), onPressed: () => _editPeng(t)),
-            IconButton(icon: const Icon(Icons.delete, size: 20, color: Color(0xFFF38BA8)), onPressed: () => _hapusPeng(t))]))),
-        const SizedBox(height: 16),
-        Align(alignment: Alignment.centerLeft, child: Text('DAFTAR PEMASUKAN LAIN (${mf.length})', style: const TextStyle(fontSize: 13, color: Color(0xFF89B4FA)))),
-        const SizedBox(height: 8),
-        if (mf.isEmpty) const Padding(padding: EdgeInsets.all(12), child: Text('Belum ada pemasukan lain', style: TextStyle(color: Colors.grey)))
-        else ...mf.map((t) => Container(
-          margin: const EdgeInsets.only(bottom: 6), padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(color: const Color(0xFF313244), borderRadius: BorderRadius.circular(8)),
-          child: Row(children: [
-            Icon(t.synced ? Icons.cloud_done : Icons.cloud_off, color: t.synced ? const Color(0xFFA6E3A1) : const Color(0xFFF9E2AF), size: 14),
-            const SizedBox(width: 6),
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('${fmtTglPendek(t.tanggal)} - ${t.keterangan}', style: const TextStyle(color: Colors.white, fontSize: 13)),
-              Text('Rp ${rp(t.nominal)}', style: const TextStyle(color: Color(0xFFA6E3A1), fontSize: 13, fontWeight: FontWeight.bold))])),
-            IconButton(icon: const Icon(Icons.edit, size: 20, color: Color(0xFF89B4FA)), onPressed: () => _editMasuk(t)),
-            IconButton(icon: const Icon(Icons.delete, size: 20, color: Color(0xFFF38BA8)), onPressed: () => _hapusMasuk(t))]))),
-        const SizedBox(height: 20),
-        SizedBox(width: double.infinity, child: ElevatedButton.icon(
-          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF45475A), padding: const EdgeInsets.all(10)),
-          onPressed: _lihatPenjualan,
-          icon: const Icon(Icons.visibility, color: Colors.white),
-          label: const Text('LIHAT PENJUALAN KASIR', style: TextStyle(color: Colors.white, fontSize: 12)))),
-      ]))),
-    );
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('${fmtTglPendek(t.tanggal)} - ${t.keterangan}', style: const TextStyle(color: Colors.white, fontSize: 13)),
+            Text('Rp ${rp(t.nominal)}', style: const TextStyle(color: Color(0xFFF38BA8), fontSize: 13, fontWeight: FontWeight.bold))])),
+          IconButton(icon: const Icon(Icons.edit, size: 20, color: Color(0xFF89B4FA)), onPressed: () => _editPeng(t)),
+          IconButton(icon: const Icon(Icons.delete, size: 20, color: Color(0xFFF38BA8)), onPressed: () => _hapusPeng(t))]))),
+      const SizedBox(height: 16),
+      Align(alignment: Alignment.centerLeft, child: Text('DAFTAR PEMASUKAN LAIN (${mf.length})',
+        style: const TextStyle(fontSize: 13, color: Color(0xFF89B4FA)))),
+      const SizedBox(height: 8),
+      if (mf.isEmpty) const Padding(padding: EdgeInsets.all(12), child: Text('Belum ada pemasukan lain', style: TextStyle(color: Colors.grey)))
+      else ...mf.map((t) => Container(
+        margin: const EdgeInsets.only(bottom: 6), padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(color: const Color(0xFF313244), borderRadius: BorderRadius.circular(8)),
+        child: Row(children: [
+          Icon(t.synced ? Icons.cloud_done : Icons.cloud_off,
+            color: t.synced ? const Color(0xFFA6E3A1) : const Color(0xFFF9E2AF), size: 14),
+          const SizedBox(width: 6),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('${fmtTglPendek(t.tanggal)} - ${t.keterangan}', style: const TextStyle(color: Colors.white, fontSize: 13)),
+            Text('Rp ${rp(t.nominal)}', style: const TextStyle(color: Color(0xFFA6E3A1), fontSize: 13, fontWeight: FontWeight.bold))])),
+          IconButton(icon: const Icon(Icons.edit, size: 20, color: Color(0xFF89B4FA)), onPressed: () => _editMasuk(t)),
+          IconButton(icon: const Icon(Icons.delete, size: 20, color: Color(0xFFF38BA8)), onPressed: () => _hapusMasuk(t))]))),
+      const SizedBox(height: 20),
+      SizedBox(width: double.infinity, child: ElevatedButton.icon(
+        style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF45475A), padding: const EdgeInsets.all(10)),
+        onPressed: _lihatPenjualan,
+        icon: const Icon(Icons.visibility, color: Colors.white),
+        label: const Text('LIHAT PENJUALAN KASIR', style: TextStyle(color: Colors.white, fontSize: 12)))),
+    ]))));
   }
 }
 
@@ -1281,8 +1572,7 @@ class _PenjualanKasirPageState extends State<PenjualanKasirPage> {
     final now = DateTime.now();
     final today = tglStr(now);
     switch (filter) {
-      case 'hari':
-        return tgl == today;
+      case 'hari': return tgl == today;
       case 'minggu':
         final wd = now.weekday;
         final start = now.subtract(Duration(days: wd - 1));
@@ -1295,104 +1585,43 @@ class _PenjualanKasirPageState extends State<PenjualanKasirPage> {
 
   @override
   Widget build(BuildContext context) {
-    final f = widget.data
-        .where((t) => _inPeriode((t['tanggal'] ?? '').toString()))
-        .toList();
+    final f = widget.data.where((t) => _inPeriode((t['tanggal'] ?? '').toString())).toList();
     final total = f.fold<int>(0, (s, t) => s + ((t['nominal'] ?? 0) as int));
     return Scaffold(
-      appBar: AppBar(
-          title: const Text('Penjualan Kasir'),
-          backgroundColor: const Color(0xFF1E1E2E)),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Wrap(spacing: 6, children: [
-                ChoiceChip(
-                    label: const Text('Hari Ini'),
-                    selected: filter == 'hari',
-                    onSelected: (_) => setState(() => filter = 'hari')),
-                ChoiceChip(
-                    label: const Text('Minggu Ini'),
-                    selected: filter == 'minggu',
-                    onSelected: (_) => setState(() => filter = 'minggu')),
-                ChoiceChip(
-                    label: const Text('Bulan Ini'),
-                    selected: filter == 'bulan',
-                    onSelected: (_) => setState(() => filter = 'bulan')),
-              ]),
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                    color: const Color(0xFF313244),
-                    borderRadius: BorderRadius.circular(8)),
-                child: Column(children: [
-                  Text('Total: Rp ${rp(total)}',
-                      style: const TextStyle(
-                          fontSize: 18,
-                          color: Color(0xFFA6E3A1),
-                          fontWeight: FontWeight.bold)),
-                  Text('${f.length} transaksi',
-                      style: const TextStyle(
-                          color: Colors.white70, fontSize: 12))
-                ])),
-              const SizedBox(height: 12),
-              if (f.isEmpty)
-                const Padding(
-                    padding: EdgeInsets.all(20),
-                    child: Text('Tidak ada data',
-                        style: TextStyle(color: Colors.grey)))
-              else
-                ...f.reversed.map((t) {
-                  final tgl = (t['tanggal'] ?? '').toString();
-                  final jam = (t['jam'] ?? '').toString();
-                  final tab = (t['tab'] ?? '').toString();
-                  final metode = (t['metode'] ?? 'Tunai').toString();
-                  final nominal = (t['nominal'] ?? 0) as int;
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 6),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 8),
-                    decoration: BoxDecoration(
-                        color: const Color(0xFF313244),
-                        borderRadius: BorderRadius.circular(8)),
-                    child: Row(children: [
-                      Icon(
-                          metode == 'QRIS'
-                              ? Icons.qr_code
-                              : Icons.payments,
-                          size: 18,
-                          color: metode == 'QRIS'
-                              ? const Color(0xFF89B4FA)
-                              : const Color(0xFFA6E3A1)),
-                      const SizedBox(width: 8),
-                      Expanded(
-                          child: Column(
-                              crossAxisAlignment:
-                                  CrossAxisAlignment.start,
-                              children: [
-                            Text('${fmtTglPendek(tgl)} - $jam',
-                                style: const TextStyle(
-                                    color: Colors.white, fontSize: 13)),
-                            Text(tab,
-                                style: const TextStyle(
-                                    color: Colors.white54,
-                                    fontSize: 11))
-                          ])),
-                      Text('Rp ${rp(nominal)}',
-                          style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold))
-                    ]),
-                  );
-                }),
-            ],
-          ),
-        ),
-      ),
+      appBar: AppBar(title: const Text('Penjualan Kasir'), backgroundColor: const Color(0xFF1E1E2E)),
+      body: SafeArea(child: SingleChildScrollView(padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Wrap(spacing: 6, children: [
+          ChoiceChip(label: const Text('Hari Ini'), selected: filter == 'hari', onSelected: (_) => setState(() => filter = 'hari')),
+          ChoiceChip(label: const Text('Minggu Ini'), selected: filter == 'minggu', onSelected: (_) => setState(() => filter = 'minggu')),
+          ChoiceChip(label: const Text('Bulan Ini'), selected: filter == 'bulan', onSelected: (_) => setState(() => filter = 'bulan')),
+        ]),
+        const SizedBox(height: 12),
+        Container(padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(color: const Color(0xFF313244), borderRadius: BorderRadius.circular(8)),
+          child: Column(children: [
+            Text('Total: Rp ${rp(total)}', style: const TextStyle(fontSize: 18, color: Color(0xFFA6E3A1), fontWeight: FontWeight.bold)),
+            Text('${f.length} transaksi', style: const TextStyle(color: Colors.white70, fontSize: 12))])),
+        const SizedBox(height: 12),
+        if (f.isEmpty) const Padding(padding: EdgeInsets.all(20), child: Text('Tidak ada data', style: TextStyle(color: Colors.grey)))
+        else ...f.reversed.map((t) {
+          final tgl = (t['tanggal'] ?? '').toString();
+          final jam = (t['jam'] ?? '').toString();
+          final tab = (t['tab'] ?? '').toString();
+          final metode = (t['metode'] ?? 'Tunai').toString();
+          final nominal = (t['nominal'] ?? 0) as int;
+          return Container(
+            margin: const EdgeInsets.only(bottom: 6), padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(color: const Color(0xFF313244), borderRadius: BorderRadius.circular(8)),
+            child: Row(children: [
+              Icon(metode == 'QRIS' ? Icons.qr_code : Icons.payments, size: 18,
+                color: metode == 'QRIS' ? const Color(0xFF89B4FA) : const Color(0xFFA6E3A1)),
+              const SizedBox(width: 8),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('${fmtTglPendek(tgl)} - $jam', style: const TextStyle(color: Colors.white, fontSize: 13)),
+                Text(tab, style: const TextStyle(color: Colors.white54, fontSize: 11))])),
+              Text('Rp ${rp(nominal)}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))]));
+        }),
+      ]))),
     );
   }
 }
