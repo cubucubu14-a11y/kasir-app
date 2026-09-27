@@ -453,7 +453,7 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
     if (!mounted) return;
     final konf = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
       title: const Text('⚠ Konfirmasi RESET'),
-      content: Text('HAPUS data di Sheets ($tgl1 s/d $tgl2), lalu KIRIM ULANG dari HP.\n\nHasil: Sheets = HP untuk rentang itu.\n\nYakin?'),
+      content: Text('HAPUS data di Sheets ($tgl1 s/d $tgl2), lalu KIRIM ULANG dari HP.\n\nYakin?'),
       actions: [
         TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('BATAL')),
         ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFF38BA8)),
@@ -493,7 +493,62 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
     if (!mounted) return;
     await showDialog(context: context, builder: (c) => AlertDialog(
       title: const Text('✓ Reset Selesai'),
-      content: Text('Periode: $tgl1 s/d $tgl2\n\nDihapus: ${hapusIds.length} data\nDikirim ulang: selesai'),
+      content: Text('Periode: $tgl1 s/d $tgl2\n\nDihapus: ${hapusIds.length} data'),
+      actions: [TextButton(onPressed: () => Navigator.pop(c), child: const Text('OK'))]));
+    _cekHantu();
+  }
+
+  Future<void> _tarikData() async {
+    final range = await showDateRangePicker(context: context,
+      firstDate: DateTime(2020), lastDate: DateTime(2100),
+      helpText: 'PILIH RENTANG UNTUK TARIK DATA', saveText: 'TARIK', cancelText: 'BATAL',
+      initialDateRange: DateTimeRange(start: DateTime.now().subtract(const Duration(days: 7)), end: DateTime.now()),
+      builder: (c, ch) => Theme(data: ThemeData.dark().copyWith(
+        colorScheme: const ColorScheme.dark(primary: Color(0xFF89B4FA), onPrimary: Colors.black,
+          surface: Color(0xFF1E1E2E), onSurface: Colors.white)), child: ch!));
+    if (range == null) return;
+    final tgl1 = tglStr(range.start);
+    final tgl2 = tglStr(range.end);
+    if (!mounted) return;
+    final konf = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
+      title: const Text('Tarik Data?'),
+      content: Text('Ambil data dari Sheets ($tgl1 s/d $tgl2)?\n\nData yang belum ada di HP akan ditambahkan.\nData yang sudah ada akan dilewati.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('BATAL')),
+        ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF89B4FA)),
+          onPressed: () => Navigator.pop(c, true),
+          child: const Text('TARIK', style: TextStyle(color: Colors.black))),
+      ]));
+    if (konf != true) return;
+    setState(() { syncing = true; progress = 'Ambil dari Sheets...'; });
+    final r = await apiGet({'action': 'get-data-kasir', 'tab': tabKasir, 'tgl1': tgl1, 'tgl2': tgl2});
+    if (r['status'] != 'ok') {
+      setState(() { syncing = false; progress = ''; });
+      _snack('Gagal: ${r['message']}', err: true); return;
+    }
+    final listSheets = r['data'] as List;
+    final idsHp = data.map((t) => t.id).toSet();
+    int ditambah = 0, dilewati = 0;
+    for (var item in listSheets) {
+      final id = (item['id'] as num).toInt();
+      if (idsHp.contains(id)) { dilewati++; continue; }
+      final t = Transaksi(
+        id: id,
+        tanggal: (item['tanggal'] ?? '').toString(),
+        jam: (item['jam'] ?? '').toString(),
+        nominal: (item['nominal'] as num).toInt(),
+        metode: (item['metode'] ?? 'Tunai').toString(),
+        synced: true,
+      );
+      data.add(t);
+      ditambah++;
+    }
+    await _save();
+    setState(() { syncing = false; progress = ''; });
+    if (!mounted) return;
+    await showDialog(context: context, builder: (c) => AlertDialog(
+      title: const Text('✓ Tarik Data Selesai'),
+      content: Text('Periode: $tgl1 s/d $tgl2\n\nDitambahkan: $ditambah data\nDilewati: $dilewati data (sudah ada)'),
       actions: [TextButton(onPressed: () => Navigator.pop(c), child: const Text('OK'))]));
     _cekHantu();
   }
@@ -689,9 +744,13 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
           icon: const Icon(Icons.more_vert, color: Colors.white70, size: 20),
           onSelected: (v) {
             if (v == 'reset') _resetRentang();
+            else if (v == 'tarik') _tarikData();
             else if (v == 'mode') _gantiMode();
           },
           itemBuilder: (c) => const [
+            PopupMenuItem(value: 'tarik', child: Row(children: [
+              Icon(Icons.download, color: Color(0xFFA6E3A1), size: 18),
+              SizedBox(width: 8), Text('Tarik Data dari Sheets')])),
             PopupMenuItem(value: 'reset', child: Row(children: [
               Icon(Icons.warning, color: Color(0xFFF38BA8), size: 18),
               SizedBox(width: 8), Text('Reset Rentang')])),
@@ -777,7 +836,6 @@ class _LaporanPageState extends State<LaporanPage> {
   int get _total => _f.fold(0, (s, t) => s + t.nominal);
   int get _totalT => _f.where((t) => t.metode == 'Tunai').fold(0, (s, t) => s + t.nominal);
   int get _totalQ => _f.where((t) => t.metode == 'QRIS').fold(0, (s, t) => s + t.nominal);
-
   Map<String, int> get _perHari { final m = <String, int>{}; for (final t in _f) m[t.tanggal] = (m[t.tanggal] ?? 0) + t.nominal; return m; }
   Map<String, int> get _countHari { final m = <String, int>{}; for (final t in _f) m[t.tanggal] = (m[t.tanggal] ?? 0) + 1; return m; }
 
@@ -904,7 +962,10 @@ class _BendaharaPageState extends State<BendaharaPage> with WidgetsBindingObserv
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) _cekHantu();
+    if (state == AppLifecycleState.resumed) {
+      _loadSaldo();
+      _cekHantu();
+    }
   }
 
   Future<void> _load() async {
@@ -1063,6 +1124,7 @@ class _BendaharaPageState extends State<BendaharaPage> with WidgetsBindingObserv
 
   Future<void> _resync() async {
     final today = tglStr(DateTime.now());
+
     if (peng.isEmpty && masuk.isEmpty && pengDel.isEmpty && masukDel.isEmpty) {
       final ok = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
         title: const Text('⚠ HP Kosong'),
@@ -1075,7 +1137,8 @@ class _BendaharaPageState extends State<BendaharaPage> with WidgetsBindingObserv
         ]));
       if (ok != true) return;
     }
-    setState(() { syncing = true; progress = 'Ambil data...'; });
+
+    setState(() { syncing = true; progress = 'Cek hantu...'; });
     final rP = await _listPeng();
     final rM = await _listMasuk();
     if (rP['status'] != 'ok' || rM['status'] != 'ok') {
@@ -1098,31 +1161,35 @@ class _BendaharaPageState extends State<BendaharaPage> with WidgetsBindingObserv
       if (hpM.contains(id)) continue;
       if (tgl == today) hantuM.add(id);
     }
-    final total = hantuP.length + hantuM.length;
-    if (total == 0) {
-      setState(() { syncing = false; progress = ''; _adaHantu = false; });
-      _snack('✓ Tidak ada data tanggal ini yang perlu dihapus', ok: true); return;
-    }
-    int ok = 0, gagal = 0; String err = ''; int ke = 0;
+    final totalHantu = hantuP.length + hantuM.length;
+    int ke = 0;
     for (final id in hantuP) {
-      ke++; if (mounted) setState(() => progress = 'Hapus PG $ke/$total');
-      final rr = await _delPeng(id);
-      if (rr['status'] == 'ok') ok++; else { gagal++; if (err.isEmpty) err = rr['message'] ?? '?'; }
-      await Future.delayed(const Duration(milliseconds: 80));
+      ke++;
+      if (mounted) setState(() => progress = 'Hapus PG $ke/$totalHantu...');
+      await _delPeng(id);
+      await Future.delayed(const Duration(milliseconds: 60));
     }
     for (final id in hantuM) {
-      ke++; if (mounted) setState(() => progress = 'Hapus PM $ke/$total');
-      final rr = await _delMasuk(id);
-      if (rr['status'] == 'ok') ok++; else { gagal++; if (err.isEmpty) err = rr['message'] ?? '?'; }
-      await Future.delayed(const Duration(milliseconds: 80));
+      ke++;
+      if (mounted) setState(() => progress = 'Hapus PM $ke/$totalHantu...');
+      await _delMasuk(id);
+      await Future.delayed(const Duration(milliseconds: 60));
     }
+
+    setState(() { syncing = false; progress = ''; });
+    await _sync(silent: true, retry: true);
+    await _loadSaldo();
+    await _cekHantu();
+
     if (mounted) {
-      setState(() { syncing = false; progress = ''; });
-      if (gagal == 0) _snack('✓ $ok data tanggal ini dihapus', ok: true);
-      else _snack('Sebagian: $ok hapus, $gagal gagal. $err', err: true);
+      String msg;
+      if (totalHantu > 0) {
+        msg = '✓ Sync selesai. $totalHantu hantu dihapus.';
+      } else {
+        msg = '✓ Sync selesai. Saldo di-refresh.';
+      }
+      _snack(msg, ok: true);
     }
-    _loadSaldo();
-    _cekHantu();
   }
 
   Future<void> _resetRentang() async {
@@ -1500,19 +1567,10 @@ class _BendaharaPageState extends State<BendaharaPage> with WidgetsBindingObserv
           overflow: TextOverflow.ellipsis)),
         const SizedBox(width: 8),
         GestureDetector(onTap: () { if (!syncing) _resync(); },
-          child: Container(padding: const EdgeInsets.all(4),
-            decoration: BoxDecoration(color: _syncColor.withOpacity(0.2), borderRadius: BorderRadius.circular(20)),
-            child: const Icon(Icons.sync, size: 22, color: Color(0xFFCBA6F7)))),
+          child: Container(padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(color: _syncColor.withOpacity(0.2), borderRadius: BorderRadius.circular(24)),
+            child: Icon(Icons.sync, size: 32, color: _syncColor))),
       ]),
-      if (belumSync > 0)
-        Padding(padding: const EdgeInsets.only(top: 8), child: SizedBox(width: double.infinity,
-          child: ElevatedButton.icon(
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFF9E2AF), padding: const EdgeInsets.all(10)),
-            onPressed: syncing ? null : () => _sync(retry: true),
-            icon: syncing ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
-                : const Icon(Icons.sync, color: Colors.black),
-            label: Text(syncing ? 'SYNC $progress' : 'SYNC SEKARANG ($belumSync)',
-              style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold))))),
       const SizedBox(height: 16),
       Align(alignment: Alignment.centerLeft, child: Text('DAFTAR PENGELUARAN (${pf.length})',
         style: const TextStyle(fontSize: 13, color: Color(0xFF89B4FA)))),
