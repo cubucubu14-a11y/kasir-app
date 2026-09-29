@@ -48,7 +48,7 @@ String fmtTglPendek(String tgl) {
 Future<Map<String, dynamic>> apiGet(Map<String, String> params) async {
   try {
     final uri = Uri.parse(SCRIPT_URL).replace(queryParameters: params);
-    final res = await http.get(uri).timeout(const Duration(seconds: 15));
+    final res = await http.get(uri).timeout(const Duration(seconds: 20));
     if (res.statusCode == 200) return jsonDecode(res.body);
     return {'status': 'error', 'message': 'HTTP ${res.statusCode}'};
   } catch (e) {
@@ -149,7 +149,7 @@ class PilihModePage extends StatelessWidget {
           const SizedBox(height: 40),
           _btn(context, '🏪  KASIR', 'Untuk input penjualan', 'kasir'),
           const SizedBox(height: 16),
-          _btn(context, '💰  BENDAHARA', 'Untuk input pengeluaran', 'bendahara'),
+          _btn(context, '💰  KEUANGAN', 'Untuk input pengeluaran & pemasukan', 'bendahara'),
         ],
       ))),
     );
@@ -249,6 +249,10 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
   bool _offline = false;
   final nominals = [5000,10000,15000,20000,25000,30000,35000,40000,45000,50000];
 
+  // ==== Filter Riwayat ====
+  String filterRiwayat = 'hari';
+  DateTime? _customT1, _customT2;
+
   @override
   void initState() {
     super.initState();
@@ -314,8 +318,49 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
   int get belumSync => data.where((t) => !t.synced).length + delIds.length;
 
   List<Transaksi> _riwayat() {
-    final t = tglStr(DateTime.now());
-    return data.where((x) => x.tanggal == t).toList().reversed.toList();
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    String t1, t2;
+    switch (filterRiwayat) {
+      case 'kemarin':
+        final k = today.subtract(const Duration(days: 1));
+        t1 = tglStr(k); t2 = t1;
+        break;
+      case 'kemarin2':
+        final k = today.subtract(const Duration(days: 2));
+        t1 = tglStr(k); t2 = t1;
+        break;
+      case 'custom':
+        if (_customT1 == null || _customT2 == null) return [];
+        t1 = tglStr(_customT1!); t2 = tglStr(_customT2!);
+        break;
+      default:
+        t1 = tglStr(today); t2 = t1;
+    }
+    return data.where((x) => x.tanggal.compareTo(t1) >= 0 && x.tanggal.compareTo(t2) <= 0)
+        .toList().reversed.toList();
+  }
+
+  String get _labelOmset {
+    switch (filterRiwayat) {
+      case 'kemarin': return 'Total kemarin';
+      case 'kemarin2': return 'Total kemarin lagi';
+      case 'custom':
+        if (_customT1 != null && _customT2 != null) {
+          return 'Total ${fmtTglPendek(tglStr(_customT1!))} - ${fmtTglPendek(tglStr(_customT2!))}';
+        }
+        return 'Total periode';
+      default: return 'Total hari ini';
+    }
+  }
+
+  String get _labelRiwayat {
+    switch (filterRiwayat) {
+      case 'kemarin': return 'RIWAYAT KEMARIN';
+      case 'kemarin2': return 'RIWAYAT KEMARIN LAGI';
+      case 'custom': return 'RIWAYAT RENTANG';
+      default: return 'RIWAYAT HARI INI';
+    }
   }
 
   int get _totalHariIni => _riwayat().fold(0, (s, t) => s + t.nominal);
@@ -440,64 +485,6 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
     _cekHantu();
   }
 
-  Future<void> _resetRentang() async {
-    final range = await showDateRangePicker(context: context,
-      firstDate: DateTime(2020), lastDate: DateTime(2100),
-      helpText: 'PILIH RENTANG UNTUK RESET', saveText: 'PILIH', cancelText: 'BATAL',
-      builder: (c, ch) => Theme(data: ThemeData.dark().copyWith(
-        colorScheme: const ColorScheme.dark(primary: Color(0xFFF38BA8), onPrimary: Colors.black,
-          surface: Color(0xFF1E1E2E), onSurface: Colors.white)), child: ch!));
-    if (range == null) return;
-    final tgl1 = tglStr(range.start);
-    final tgl2 = tglStr(range.end);
-    if (!mounted) return;
-    final konf = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
-      title: const Text('⚠ Konfirmasi RESET'),
-      content: Text('HAPUS data di Sheets ($tgl1 s/d $tgl2), lalu KIRIM ULANG dari HP.\n\nYakin?'),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('BATAL')),
-        ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFF38BA8)),
-          onPressed: () => Navigator.pop(c, true),
-          child: const Text('RESET', style: TextStyle(color: Colors.black))),
-      ]));
-    if (konf != true) return;
-    setState(() { syncing = true; progress = 'Reset: hapus Sheets...'; });
-    final r = await _listIds();
-    if (r['status'] != 'ok') {
-      setState(() { syncing = false; progress = ''; });
-      _snack('Gagal: ${r['message']}', err: true); return;
-    }
-    final listSheets = r['ids'] as List;
-    final hapusIds = <int>[];
-    for (var item in listSheets) {
-      final id = (item['id'] as num).toInt();
-      final tgl = (item['tanggal'] ?? '').toString();
-      if (tgl.compareTo(tgl1) >= 0 && tgl.compareTo(tgl2) <= 0) hapusIds.add(id);
-    }
-    int ke = 0;
-    for (final id in hapusIds) {
-      ke++;
-      if (mounted) setState(() => progress = 'Hapus $ke/${hapusIds.length}...');
-      await _delete(id);
-      await Future.delayed(const Duration(milliseconds: 50));
-    }
-    setState(() {
-      progress = 'Kirim ulang dari HP...';
-      for (final t in data) {
-        if (t.tanggal.compareTo(tgl1) >= 0 && t.tanggal.compareTo(tgl2) <= 0) t.synced = false;
-      }
-    });
-    await _save();
-    setState(() { syncing = false; progress = ''; });
-    await _sync(silent: false, retry: true);
-    if (!mounted) return;
-    await showDialog(context: context, builder: (c) => AlertDialog(
-      title: const Text('✓ Reset Selesai'),
-      content: Text('Periode: $tgl1 s/d $tgl2\n\nDihapus: ${hapusIds.length} data'),
-      actions: [TextButton(onPressed: () => Navigator.pop(c), child: const Text('OK'))]));
-    _cekHantu();
-  }
-
   Future<void> _tarikData() async {
     final range = await showDateRangePicker(context: context,
       firstDate: DateTime(2020), lastDate: DateTime(2100),
@@ -553,10 +540,18 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
     _cekHantu();
   }
 
+  Future<void> _bukaLihatSheet() async {
+    if (tabKasir.isEmpty) { _snack('Tab kasir belum diset', err: true); return; }
+    await Navigator.push(context, MaterialPageRoute(
+      builder: (_) => LihatSheetPage(mode: 'kasir', tabKasir: tabKasir),
+    ));
+    _cekHantu();
+  }
+
   Future<void> _gantiMode() async {
     final ok = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
       title: const Text('Ganti Mode?'),
-      content: const Text('Ganti dari KASIR ke BENDAHARA?\n\nData lokal tidak hilang.'),
+      content: const Text('Ganti dari KASIR ke KEUANGAN?\n\nData lokal tidak hilang.'),
       actions: [
         TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('BATAL')),
         ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF89B4FA)),
@@ -700,6 +695,57 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
     Navigator.push(context, MaterialPageRoute(builder: (_) => LaporanPage(data: data, nama: tabKasir)));
   }
 
+  Future<void> _pilihRentangRiwayat() async {
+    final now = DateTime.now();
+    final r = await showDateRangePicker(context: context,
+      firstDate: DateTime(2020), lastDate: DateTime(2100),
+      initialDateRange: (_customT1 != null && _customT2 != null)
+          ? DateTimeRange(start: _customT1!, end: _customT2!)
+          : DateTimeRange(start: now.subtract(const Duration(days: 7)), end: now),
+      helpText: 'PILIH RENTANG RIWAYAT', saveText: 'PILIH', cancelText: 'BATAL',
+      builder: (c, ch) => Theme(data: ThemeData.dark().copyWith(
+        colorScheme: const ColorScheme.dark(primary: Color(0xFF89B4FA), onPrimary: Colors.black,
+          surface: Color(0xFF1E1E2E), onSurface: Colors.white)), child: ch!));
+    if (r == null) return;
+    setState(() {
+      filterRiwayat = 'custom';
+      _customT1 = r.start;
+      _customT2 = r.end;
+    });
+  }
+
+  Widget _chipRiwayat(String label, String value) {
+    final selected = filterRiwayat == value;
+    return GestureDetector(
+      onTap: () {
+        if (value == 'custom') {
+          _pilihRentangRiwayat();
+        } else {
+          setState(() => filterRiwayat = value);
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? const Color(0xFF89B4FA) : const Color(0xFF45475A),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: selected ? const Color(0xFF89B4FA) : const Color(0xFF585B70),
+            width: 1,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: selected ? Colors.black : Colors.white,
+            fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+          ),
+        ),
+      ),
+    );
+  }
+    
   @override
   Widget build(BuildContext context) {
     final r = _riwayat();
@@ -715,7 +761,7 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
           decoration: BoxDecoration(color: const Color(0xFF313244), borderRadius: BorderRadius.circular(12)),
           child: showOmset
             ? Column(children: [
-                Text('Total hari ini: Rp ${rp(_totalHariIni)}', style: const TextStyle(fontSize: 20, color: Color(0xFFA6E3A1))),
+                Text('$_labelOmset: Rp ${rp(_totalHariIni)}', style: const TextStyle(fontSize: 20, color: Color(0xFFA6E3A1))),
                 const SizedBox(height: 6),
                 Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                   const Icon(Icons.payments, size: 16, color: Color(0xFFA6E3A1)), const SizedBox(width: 4),
@@ -724,7 +770,7 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
                   const Icon(Icons.qr_code, size: 16, color: Color(0xFF89B4FA)), const SizedBox(width: 4),
                   Text('Rp ${rp(_totalQris)}', style: const TextStyle(fontSize: 14, color: Color(0xFF89B4FA)))]),
               ])
-            : const Text('Total hari ini: ●●●●●●●', style: TextStyle(fontSize: 20, color: Color(0xFFA6E3A1)))),
+            : const Text('Total: ●●●●●●●', style: TextStyle(fontSize: 20, color: Color(0xFFA6E3A1)))),
       ),
       const SizedBox(height: 2),
       const Text('(tahan untuk lihat omset)', style: TextStyle(fontSize: 10, color: Colors.white38)),
@@ -743,17 +789,17 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
         PopupMenuButton<String>(
           icon: const Icon(Icons.more_vert, color: Colors.white70, size: 20),
           onSelected: (v) {
-            if (v == 'reset') _resetRentang();
+            if (v == 'lihat') _bukaLihatSheet();
             else if (v == 'tarik') _tarikData();
             else if (v == 'mode') _gantiMode();
           },
           itemBuilder: (c) => const [
+            PopupMenuItem(value: 'lihat', child: Row(children: [
+              Icon(Icons.table_chart, color: Color(0xFFA6E3A1), size: 18),
+              SizedBox(width: 8), Text('Lihat Sheet')])),
             PopupMenuItem(value: 'tarik', child: Row(children: [
-              Icon(Icons.download, color: Color(0xFFA6E3A1), size: 18),
+              Icon(Icons.download, color: Color(0xFF89B4FA), size: 18),
               SizedBox(width: 8), Text('Tarik Data dari Sheets')])),
-            PopupMenuItem(value: 'reset', child: Row(children: [
-              Icon(Icons.warning, color: Color(0xFFF38BA8), size: 18),
-              SizedBox(width: 8), Text('Reset Rentang')])),
             PopupMenuItem(value: 'mode', child: Row(children: [
               Icon(Icons.swap_horiz, color: Color(0xFF89B4FA), size: 18),
               SizedBox(width: 8), Text('Ganti Mode')])),
@@ -782,10 +828,29 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
           style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF89B4FA)),
           onPressed: () => _inputNominal(n),
           child: Text(rp(n), style: const TextStyle(fontSize: 20, color: Colors.black, fontWeight: FontWeight.bold)))).toList()),
+
       const SizedBox(height: 20),
-      const Text('RIWAYAT HARI INI', style: TextStyle(fontSize: 14, color: Color(0xFF89B4FA))),
+      const Text('RIWAYAT PENJUALAN', style: TextStyle(fontSize: 14, color: Color(0xFF89B4FA))),
       const SizedBox(height: 8),
-      if (r.isEmpty) const Padding(padding: EdgeInsets.all(20), child: Text('Belum ada transaksi', style: TextStyle(color: Colors.grey)))
+      Wrap(
+        spacing: 6, runSpacing: 6, alignment: WrapAlignment.center,
+        children: [
+          _chipRiwayat('Hari Ini', 'hari'),
+          _chipRiwayat('Kemarin', 'kemarin'),
+          _chipRiwayat('Kemarin Lagi', 'kemarin2'),
+          _chipRiwayat(
+            filterRiwayat == 'custom' && _customT1 != null && _customT2 != null
+                ? '${fmtTglPendek(tglStr(_customT1!))} - ${fmtTglPendek(tglStr(_customT2!))}'
+                : '📅 Rentang',
+            'custom',
+          ),
+        ],
+      ),
+      const SizedBox(height: 8),
+      Text(_labelRiwayat, style: const TextStyle(fontSize: 12, color: Colors.white70)),
+      const SizedBox(height: 8),
+      if (r.isEmpty)
+        const Padding(padding: EdgeInsets.all(20), child: Text('Belum ada transaksi', style: TextStyle(color: Colors.grey)))
       else ...r.asMap().entries.map((e) => Container(
         margin: const EdgeInsets.only(bottom: 6), padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         decoration: BoxDecoration(color: const Color(0xFF313244), borderRadius: BorderRadius.circular(8)),
@@ -796,10 +861,14 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
           Icon(e.value.metode == 'QRIS' ? Icons.qr_code : Icons.payments, size: 18,
             color: e.value.metode == 'QRIS' ? const Color(0xFF89B4FA) : const Color(0xFFA6E3A1)),
           const SizedBox(width: 6),
-          Expanded(child: Text('${e.key+1}. ${e.value.jam}  —  Rp ${rp(e.value.nominal)}',
-            style: const TextStyle(color: Colors.white))),
-          IconButton(icon: const Icon(Icons.edit, color: Color(0xFF89B4FA)), onPressed: () => _edit(e.value)),
-          IconButton(icon: const Icon(Icons.delete, color: Color(0xFFF38BA8)), onPressed: () => _hapus(e.value))]))),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('${e.key+1}. ${fmtTglPendek(e.value.tanggal)} - ${e.value.jam}',
+              style: const TextStyle(color: Colors.white70, fontSize: 11)),
+            Text('Rp ${rp(e.value.nominal)}',
+              style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+          ])),
+          IconButton(icon: const Icon(Icons.edit, color: Color(0xFF89B4FA), size: 20), onPressed: () => _edit(e.value)),
+          IconButton(icon: const Icon(Icons.delete, color: Color(0xFFF38BA8), size: 20), onPressed: () => _hapus(e.value))]))),
       const SizedBox(height: 16),
       SizedBox(width: double.infinity, child: ElevatedButton.icon(
         style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF89B4FA), padding: const EdgeInsets.all(14)),
@@ -926,7 +995,7 @@ class _LaporanPageState extends State<LaporanPage> {
     labelStyle: const TextStyle(color: Colors.white), onPressed: t);
 }
 
-// ============ BENDAHARA PAGE ============
+// ============ KEUANGAN PAGE ============
 class BendaharaPage extends StatefulWidget {
   const BendaharaPage({super.key});
   @override
@@ -946,6 +1015,12 @@ class _BendaharaPageState extends State<BendaharaPage> with WidgetsBindingObserv
   bool _adaHantu = false;
   bool _sedangCek = false;
   bool _offline = false;
+
+  // ==== Cache saldo offline ====
+  int _saldoLainCache = 0;
+  int _saldoKeluarCache = 0;
+  int _saldoTotalCache = 0;
+  String _waktuSaldoCache = '';
 
   @override
   void initState() {
@@ -978,6 +1053,13 @@ class _BendaharaPageState extends State<BendaharaPage> with WidgetsBindingObserv
     if (pdd != null) pengDel = (jsonDecode(pdd) as List).map((e) => e as int).toList();
     final mdd = p.getString('masukDel');
     if (mdd != null) masukDel = (jsonDecode(mdd) as List).map((e) => e as int).toList();
+
+    _saldoLainCache = p.getInt('saldoLainCache') ?? 0;
+    _saldoKeluarCache = p.getInt('saldoKeluarCache') ?? 0;
+    _saldoTotalCache = p.getInt('saldoTotalCache') ?? 0;
+    _waktuSaldoCache = p.getString('waktuSaldoCache') ?? '';
+    _offline = _waktuSaldoCache.isEmpty;
+
     setState(() {});
     _loadSaldo();
     _sync(silent: true, retry: false);
@@ -995,12 +1077,35 @@ class _BendaharaPageState extends State<BendaharaPage> with WidgetsBindingObserv
   Future<void> _loadSaldo() async {
     final r = await apiGet({'action': 'get-saldo'});
     if (r['status'] == 'ok' && mounted) {
+      final kl = (r['totalKasir'] ?? 0).toInt();
+      final ln = (r['totalLain'] ?? 0).toInt();
+      final kr = (r['totalKeluar'] ?? 0).toInt();
+      final waktu = '${jamStr(DateTime.now())} ${fmtTglPendek(tglStr(DateTime.now()))}';
       setState(() {
-        saldoKasir = (r['totalKasir'] ?? 0).toInt();
-        saldoLain = (r['totalLain'] ?? 0).toInt();
-        saldoKeluar = (r['totalKeluar'] ?? 0).toInt();
+        saldoKasir = kl;
+        saldoLain = ln;
+        saldoKeluar = kr;
+        _offline = false;
+        _saldoLainCache = ln;
+        _saldoKeluarCache = kr;
+        _saldoTotalCache = kl + ln - kr;
+        _waktuSaldoCache = waktu;
       });
+      final p = await SharedPreferences.getInstance();
+      await p.setInt('saldoLainCache', ln);
+      await p.setInt('saldoKeluarCache', kr);
+      await p.setInt('saldoTotalCache', kl + ln - kr);
+      await p.setString('waktuSaldoCache', waktu);
+    } else {
+      if (mounted) setState(() => _offline = true);
     }
+  }
+
+  int get _saldoTampil {
+    if (!_offline) return saldoKasir + saldoLain - saldoKeluar;
+    final pendingLain = masuk.where((t) => !t.synced).fold(0, (s, t) => s + t.nominal);
+    final pendingKeluar = peng.where((t) => !t.synced).fold(0, (s, t) => s + t.nominal);
+    return _saldoTotalCache + pendingLain - pendingKeluar;
   }
 
   Future<void> _cekHantu() async {
@@ -1109,6 +1214,7 @@ class _BendaharaPageState extends State<BendaharaPage> with WidgetsBindingObserv
       if (gagal == 0) {
         if (mounted) { setState(() { syncing = false; progress = ''; });
           if (!silent) _snack('✓ Sync berhasil', ok: true); }
+        _loadSaldo();
         _cekHantu();
         return;
       }
@@ -1192,70 +1298,10 @@ class _BendaharaPageState extends State<BendaharaPage> with WidgetsBindingObserv
     }
   }
 
-  Future<void> _resetRentang() async {
-    final range = await showDateRangePicker(context: context,
-      firstDate: DateTime(2020), lastDate: DateTime(2100),
-      helpText: 'PILIH RENTANG UNTUK RESET', saveText: 'PILIH', cancelText: 'BATAL',
-      builder: (c, ch) => Theme(data: ThemeData.dark().copyWith(
-        colorScheme: const ColorScheme.dark(primary: Color(0xFFF38BA8), onPrimary: Colors.black,
-          surface: Color(0xFF1E1E2E), onSurface: Colors.white)), child: ch!));
-    if (range == null) return;
-    final tgl1 = tglStr(range.start);
-    final tgl2 = tglStr(range.end);
-    if (!mounted) return;
-    final konf = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
-      title: const Text('⚠ Konfirmasi RESET'),
-      content: Text('HAPUS data di Sheets ($tgl1 s/d $tgl2), lalu KIRIM ULANG dari HP.\n\nYakin?'),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('BATAL')),
-        ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFF38BA8)),
-          onPressed: () => Navigator.pop(c, true),
-          child: const Text('RESET', style: TextStyle(color: Colors.black))),
-      ]));
-    if (konf != true) return;
-    setState(() { syncing = true; progress = 'Reset: hapus Sheets...'; });
-    final rP = await _listPeng();
-    final rM = await _listMasuk();
-    if (rP['status'] != 'ok' || rM['status'] != 'ok') {
-      setState(() { syncing = false; progress = ''; });
-      _snack('Gagal ambil data', err: true); return;
-    }
-    int ke = 0;
-    for (var item in (rP['ids'] as List)) {
-      final id = (item['id'] as num).toInt();
-      final tgl = (item['tanggal'] ?? '').toString();
-      if (tgl.compareTo(tgl1) >= 0 && tgl.compareTo(tgl2) <= 0) {
-        ke++; if (mounted) setState(() => progress = 'Hapus PG $ke...');
-        await _delPeng(id);
-        await Future.delayed(const Duration(milliseconds: 50));
-      }
-    }
-    for (var item in (rM['ids'] as List)) {
-      final id = (item['id'] as num).toInt();
-      final tgl = (item['tanggal'] ?? '').toString();
-      if (tgl.compareTo(tgl1) >= 0 && tgl.compareTo(tgl2) <= 0) {
-        ke++; if (mounted) setState(() => progress = 'Hapus PM $ke...');
-        await _delMasuk(id);
-        await Future.delayed(const Duration(milliseconds: 50));
-      }
-    }
-    setState(() {
-      progress = 'Kirim ulang dari HP...';
-      for (final t in peng) {
-        if (t.tanggal.compareTo(tgl1) >= 0 && t.tanggal.compareTo(tgl2) <= 0) t.synced = false;
-      }
-      for (final t in masuk) {
-        if (t.tanggal.compareTo(tgl1) >= 0 && t.tanggal.compareTo(tgl2) <= 0) t.synced = false;
-      }
-    });
-    await _save();
-    setState(() { syncing = false; progress = ''; });
-    await _sync(silent: false, retry: true);
-    if (!mounted) return;
-    await showDialog(context: context, builder: (c) => AlertDialog(
-      title: const Text('✓ Reset Selesai'),
-      content: Text('Periode: $tgl1 s/d $tgl2\n\nSheets sudah disamakan dengan HP.'),
-      actions: [TextButton(onPressed: () => Navigator.pop(c), child: const Text('OK'))]));
+  Future<void> _bukaLihatSheet() async {
+    await Navigator.push(context, MaterialPageRoute(
+      builder: (_) => const LihatSheetPage(mode: 'bendahara', tabKasir: null),
+    ));
     _loadSaldo();
     _cekHantu();
   }
@@ -1263,7 +1309,7 @@ class _BendaharaPageState extends State<BendaharaPage> with WidgetsBindingObserv
   Future<void> _gantiMode() async {
     final ok = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
       title: const Text('Ganti Mode?'),
-      content: const Text('Ganti dari BENDAHARA ke KASIR?\n\nData lokal tidak hilang.'),
+      content: const Text('Ganti dari KEUANGAN ke KASIR?\n\nData lokal tidak hilang.'),
       actions: [
         TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('BATAL')),
         ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF89B4FA)),
@@ -1432,17 +1478,45 @@ class _BendaharaPageState extends State<BendaharaPage> with WidgetsBindingObserv
   Future<void> _lihatSaldo() async {
     await _loadSaldo();
     if (!mounted) return;
+    final offlineSkrg = _offline;
+    final lainTampil = offlineSkrg ? _saldoLainCache : saldoLain;
+    final keluarTampil = offlineSkrg ? _saldoKeluarCache : saldoKeluar;
+    final saldoTampil = _saldoTampil;
     await showDialog<void>(context: context, builder: (c) => AlertDialog(
-      title: const Text('Rincian Saldo'),
+      title: Row(children: [
+        const Text('Rincian Saldo'),
+        const Spacer(),
+        Icon(
+          offlineSkrg ? Icons.cloud_off : Icons.cloud_done,
+          size: 18,
+          color: offlineSkrg ? Colors.grey : const Color(0xFF89B4FA),
+        ),
+      ]),
       content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        if (offlineSkrg)
+          Container(
+            padding: const EdgeInsets.all(8),
+            margin: const EdgeInsets.only(bottom: 8),
+            decoration: BoxDecoration(
+              color: Colors.grey.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              'Mode offline. Terakhir sync: ${_waktuSaldoCache.isEmpty ? "-" : _waktuSaldoCache}',
+              style: const TextStyle(fontSize: 11, color: Colors.white70),
+            ),
+          ),
         Text('📈 Pemasukan Kasir: Rp ${rp(saldoKasir)}'),
-        Text('📈 Pemasukan Lain: Rp ${rp(saldoLain)}'),
-        Text('📉 Pengeluaran: Rp ${rp(saldoKeluar)}'),
+        Text('📈 Pemasukan Lain: Rp ${rp(lainTampil)}'),
+        Text('📉 Pengeluaran: Rp ${rp(keluarTampil)}'),
         const Divider(),
-        Text('💰 SALDO: Rp ${rp(saldoKasir + saldoLain - saldoKeluar)}',
+        Text('💰 SALDO: Rp ${rp(saldoTampil)}',
           style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFA6E3A1), fontSize: 16)),
         const SizedBox(height: 8),
-        const Text('(Akumulatif semua waktu)', style: TextStyle(fontSize: 11, color: Colors.white54)),
+        Text(
+          offlineSkrg ? '(Offline: saldo = cache + pending)' : '(Akumulatif semua waktu)',
+          style: const TextStyle(fontSize: 11, color: Colors.white54),
+        ),
       ])),
       actions: [TextButton(onPressed: () => Navigator.pop(c), child: const Text('TUTUP'))],
     ));
@@ -1496,18 +1570,18 @@ class _BendaharaPageState extends State<BendaharaPage> with WidgetsBindingObserv
     final mf = _masukFiltered;
     return Scaffold(body: SafeArea(child: SingleChildScrollView(padding: const EdgeInsets.all(12), child: Column(children: [
       Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-        const Text('BENDAHARA', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+        const Text('KEUANGAN', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
         const SizedBox(width: 8),
         PopupMenuButton<String>(
           icon: const Icon(Icons.more_vert, color: Colors.white70, size: 20),
           onSelected: (v) {
-            if (v == 'reset') _resetRentang();
+            if (v == 'lihat') _bukaLihatSheet();
             else if (v == 'mode') _gantiMode();
           },
           itemBuilder: (c) => const [
-            PopupMenuItem(value: 'reset', child: Row(children: [
-              Icon(Icons.warning, color: Color(0xFFF38BA8), size: 18),
-              SizedBox(width: 8), Text('Reset Rentang')])),
+            PopupMenuItem(value: 'lihat', child: Row(children: [
+              Icon(Icons.table_chart, color: Color(0xFFA6E3A1), size: 18),
+              SizedBox(width: 8), Text('Lihat Sheet')])),
             PopupMenuItem(value: 'mode', child: Row(children: [
               Icon(Icons.swap_horiz, color: Color(0xFF89B4FA), size: 18),
               SizedBox(width: 8), Text('Ganti Mode')])),
@@ -1517,15 +1591,37 @@ class _BendaharaPageState extends State<BendaharaPage> with WidgetsBindingObserv
       const SizedBox(height: 12),
       GestureDetector(onTap: _lihatSaldo, child: Container(
         padding: const EdgeInsets.all(14), width: double.infinity,
-        decoration: BoxDecoration(color: const Color(0xFF313244), borderRadius: BorderRadius.circular(12)),
+        decoration: BoxDecoration(
+          color: const Color(0xFF313244),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: _offline ? Colors.grey.withOpacity(0.4) : const Color(0xFF89B4FA).withOpacity(0.4),
+            width: 1,
+          ),
+        ),
         child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: const [Text('💰 ', style: TextStyle(fontSize: 16)), Text('SALDO', style: TextStyle(color: Color(0xFFA6E3A1)))]),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              const Text('💰 ', style: TextStyle(fontSize: 16)),
+              Text('SALDO', style: TextStyle(color: _offline ? Colors.grey : const Color(0xFFA6E3A1))),
+              const SizedBox(width: 6),
+              Icon(
+                _offline ? Icons.cloud_off : Icons.cloud_done,
+                size: 14,
+                color: _offline ? Colors.grey : const Color(0xFF89B4FA),
+              ),
+            ]),
             const SizedBox(height: 4),
-            Text('Rp ${rp(saldoKasir + saldoLain - saldoKeluar)}',
+            Text('Rp ${rp(_saldoTampil)}',
               style: const TextStyle(fontSize: 20, color: Colors.white, fontWeight: FontWeight.bold)),
-          ]),
-          const Icon(Icons.remove_red_eye, color: Color(0xFF89B4FA), size: 28),
+            if (_offline && _waktuSaldoCache.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text('(offline - terakhir sync $_waktuSaldoCache)',
+                  style: const TextStyle(fontSize: 9, color: Colors.white38)),
+              ),
+          ])),
+          Icon(Icons.remove_red_eye, color: _offline ? Colors.grey : const Color(0xFF89B4FA), size: 28),
         ]))),
       const SizedBox(height: 10),
       Container(padding: const EdgeInsets.all(14),
@@ -1680,6 +1776,402 @@ class _PenjualanKasirPageState extends State<PenjualanKasirPage> {
               Text('Rp ${rp(nominal)}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))]));
         }),
       ]))),
+    );
+  }
+}
+
+// ============ HALAMAN LIHAT SHEET ============
+class LihatSheetPage extends StatefulWidget {
+  final String mode;
+  final String? tabKasir;
+  const LihatSheetPage({super.key, required this.mode, this.tabKasir});
+  @override
+  State<LihatSheetPage> createState() => _LihatSheetPageState();
+}
+
+class _LihatSheetPageState extends State<LihatSheetPage> {
+  bool loading = true;
+  String? error;
+  Map<String, List<Map<String, dynamic>>> dataPerTab = {};
+  List<String> urutanTab = [];
+  Set<String> expandedTabs = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() { loading = true; error = null; });
+
+    if (widget.mode == 'kasir') {
+      final tab = widget.tabKasir ?? '';
+      if (tab.isEmpty) {
+        setState(() { loading = false; error = 'Tab kasir belum diset'; });
+        return;
+      }
+      final r = await apiGet({'action': 'get-data-tab', 'tab': tab});
+      if (!mounted) return;
+      if (r['status'] != 'ok') {
+        setState(() { loading = false; error = r['message'] ?? 'Gagal'; });
+        return;
+      }
+      final list = (r['data'] as List).cast<Map<String, dynamic>>();
+      setState(() {
+        loading = false;
+        urutanTab = [tab];
+        dataPerTab = {tab: list};
+      });
+    } else {
+      final rTabs = await apiGet({'action': 'list-tabs'});
+      if (!mounted) return;
+      if (rTabs['status'] != 'ok') {
+        setState(() { loading = false; error = rTabs['message'] ?? 'Gagal ambil daftar tab'; });
+        return;
+      }
+      final tabs = (rTabs['tabs'] as List).map((e) => e.toString()).toList();
+      final hasil = <String, List<Map<String, dynamic>>>{};
+      for (final tab in tabs) {
+        final r = await apiGet({'action': 'get-data-tab', 'tab': tab});
+        if (r['status'] == 'ok') {
+          hasil[tab] = (r['data'] as List).cast<Map<String, dynamic>>();
+        } else {
+          hasil[tab] = [];
+        }
+      }
+      if (!mounted) return;
+      setState(() {
+        loading = false;
+        urutanTab = tabs;
+        dataPerTab = hasil;
+      });
+    }
+  }
+
+  Future<void> _hapusRentang(String tab, List<Map<String, dynamic>> dataTab) async {
+    if (dataTab.isEmpty) {
+      _snack('Tidak ada data di tab ini');
+      return;
+    }
+
+    final now = DateTime.now();
+    final range = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+      initialDateRange: DateTimeRange(
+        start: now.subtract(const Duration(days: 7)),
+        end: now,
+      ),
+      helpText: 'PILIH RENTANG HAPUS',
+      saveText: 'PILIH',
+      cancelText: 'BATAL',
+      builder: (c, ch) => Theme(
+        data: ThemeData.dark().copyWith(
+          colorScheme: const ColorScheme.dark(
+            primary: Color(0xFFF38BA8),
+            onPrimary: Colors.black,
+            surface: Color(0xFF1E1E2E),
+            onSurface: Colors.white,
+          ),
+        ),
+        child: ch!,
+      ),
+    );
+    if (range == null) return;
+
+    final tgl1 = tglStr(range.start);
+    final tgl2 = tglStr(range.end);
+
+    final akanHapus = dataTab.where((t) {
+      final tgl = (t['tanggal'] ?? '').toString();
+      return tgl.compareTo(tgl1) >= 0 && tgl.compareTo(tgl2) <= 0;
+    }).toList();
+    final totalNominal = akanHapus.fold<int>(0, (s, t) => s + ((t['nominal'] ?? 0) as int));
+
+    if (akanHapus.isEmpty) {
+      _snack('Tidak ada data di rentang ini');
+      return;
+    }
+
+    if (!mounted) return;
+
+    final konf = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('⚠ Konfirmasi Hapus'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Tab: $tab',
+                  style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF89B4FA))),
+              const SizedBox(height: 8),
+              Text('Periode: ${fmtTglPendek(tgl1)} s/d ${fmtTglPendek(tgl2)}'),
+              Text('Jumlah data: ${akanHapus.length}'),
+              Text('Total: Rp ${rp(totalNominal)}',
+                  style: const TextStyle(color: Color(0xFFF38BA8), fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
+              const Text('Data akan dihapus dari Sheets. HP tidak berubah.',
+                  style: TextStyle(fontSize: 11, color: Colors.white54)),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('BATAL')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFF38BA8)),
+            onPressed: () => Navigator.pop(c, true),
+            child: const Text('HAPUS', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+    if (konf != true) return;
+
+    _showProgress('Menghapus...');
+    final r = await apiGet({
+      'action': 'delete-range-tab',
+      'tab': tab,
+      'tgl1': tgl1,
+      'tgl2': tgl2,
+    });
+    if (!mounted) return;
+    Navigator.pop(context);
+
+    if (r['status'] == 'ok') {
+      final hapus = r['hapus'] ?? akanHapus.length;
+      _snack('✓ $hapus data dihapus dari tab "$tab"', ok: true);
+      _load();
+    } else {
+      _snack('Gagal: ${r['message']}', err: true);
+    }
+  }
+
+  void _showProgress(String msg) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (c) => AlertDialog(
+        content: Row(
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(width: 16),
+            Text(msg),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _snack(String m, {bool ok = false, bool err = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(m),
+      duration: const Duration(seconds: 4),
+      backgroundColor: ok ? const Color(0xFF2D4F2D) : err ? const Color(0xFF7F3F3F) : null,
+    ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.mode == 'kasir' ? 'Sheet - ${widget.tabKasir}' : 'Lihat Sheet'),
+        backgroundColor: const Color(0xFF1E1E2E),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: loading ? null : _load,
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: loading
+            ? const Center(child: CircularProgressIndicator())
+            : error != null
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.error, color: Color(0xFFF38BA8), size: 64),
+                          const SizedBox(height: 16),
+                          Text(error!, textAlign: TextAlign.center),
+                          const SizedBox(height: 16),
+                          ElevatedButton(onPressed: _load, child: const Text('COBA LAGI')),
+                        ],
+                      ),
+                    ),
+                  )
+                : SingleChildScrollView(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (urutanTab.isEmpty)
+                          const Padding(
+                            padding: EdgeInsets.all(24),
+                            child: Text('Tidak ada tab yang ditemukan',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(color: Colors.grey)),
+                          )
+                        else
+                          ...urutanTab.map((tab) => _buildTabCard(tab, dataPerTab[tab] ?? [])),
+                      ],
+                    ),
+                  ),
+      ),
+    );
+  }
+
+  Widget _buildTabCard(String tab, List<Map<String, dynamic>> dataTab) {
+    final total = dataTab.fold<int>(0, (s, t) => s + ((t['nominal'] ?? 0) as int));
+    final isKosong = dataTab.isEmpty;
+    final isExpanded = expandedTabs.contains(tab);
+    final showData = isExpanded ? dataTab : dataTab.take(10).toList();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF313244),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFF45475A)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: const BoxDecoration(
+              color: Color(0xFF45475A),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.store, color: Color(0xFF89B4FA), size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    tab,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+                Text(
+                  isKosong ? 'Kosong' : '${dataTab.length} data',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: isKosong ? Colors.white38 : Colors.white70,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Total nominal:', style: TextStyle(fontSize: 12, color: Colors.white70)),
+                Text('Rp ${rp(total)}',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: isKosong ? Colors.white38 : const Color(0xFFA6E3A1),
+                      fontWeight: FontWeight.bold,
+                    )),
+              ],
+            ),
+          ),
+          if (isKosong)
+            const Padding(
+              padding: EdgeInsets.all(12),
+              child: Text('Tab kosong',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 12, color: Colors.grey)),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Column(
+                children: [
+                  ...showData.map((t) {
+                    final id = t['id'];
+                    final tgl = (t['tanggal'] ?? '').toString();
+                    final jam = (t['jam'] ?? '').toString();
+                    final nom = (t['nominal'] ?? 0) as int;
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Row(
+                        children: [
+                          Text('#$id',
+                              style: const TextStyle(fontSize: 10, color: Colors.white38)),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              '$tgl $jam',
+                              style: const TextStyle(fontSize: 11, color: Colors.white70),
+                            ),
+                          ),
+                          Text('Rp ${rp(nom)}',
+                              style: const TextStyle(fontSize: 11, color: Colors.white)),
+                        ],
+                      ),
+                    );
+                  }),
+                  if (dataTab.length > 10)
+                    TextButton(
+                      onPressed: () {
+                        setState(() {
+                          if (isExpanded) {
+                            expandedTabs.remove(tab);
+                          } else {
+                            expandedTabs.add(tab);
+                          }
+                        });
+                      },
+                      child: Text(
+                        isExpanded
+                            ? '▲ Sembunyikan'
+                            : '▼ Lihat semua (${dataTab.length})',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF89B4FA),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: isKosong ? const Color(0xFF45475A) : const Color(0xFFF38BA8),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                disabledBackgroundColor: const Color(0xFF45475A),
+              ),
+              onPressed: isKosong ? null : () => _hapusRentang(tab, dataTab),
+              icon: Icon(Icons.delete_sweep,
+                  color: isKosong ? Colors.white38 : Colors.black),
+              label: Text(
+                'HAPUS RENTANG TAB INI',
+                style: TextStyle(
+                  color: isKosong ? Colors.white38 : Colors.black,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
