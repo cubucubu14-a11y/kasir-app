@@ -249,7 +249,6 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
   bool _offline = false;
   final nominals = [5000,10000,15000,20000,25000,30000,35000,40000,45000,50000];
 
-  // ==== Filter Riwayat ====
   String filterRiwayat = 'hari';
   DateTime? _customT1, _customT2;
 
@@ -344,7 +343,7 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
   String get _labelOmset {
     switch (filterRiwayat) {
       case 'kemarin': return 'Total kemarin';
-      case 'kemarin2': return 'Total kemarin lagi';
+      case 'kemarin2': return 'Total 2 hari lalu';
       case 'custom':
         if (_customT1 != null && _customT2 != null) {
           return 'Total ${fmtTglPendek(tglStr(_customT1!))} - ${fmtTglPendek(tglStr(_customT2!))}';
@@ -354,12 +353,16 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
     }
   }
 
-  String get _labelRiwayat {
+  String get _labelFilterAktif {
     switch (filterRiwayat) {
-      case 'kemarin': return 'RIWAYAT KEMARIN';
-      case 'kemarin2': return 'RIWAYAT KEMARIN LAGI';
-      case 'custom': return 'RIWAYAT RENTANG';
-      default: return 'RIWAYAT HARI INI';
+      case 'kemarin': return 'Kemarin';
+      case 'kemarin2': return 'Kemarin Lagi';
+      case 'custom':
+        if (_customT1 != null && _customT2 != null) {
+          return '${fmtTglPendek(tglStr(_customT1!))} - ${fmtTglPendek(tglStr(_customT2!))}';
+        }
+        return 'Rentang';
+      default: return 'Hari Ini';
     }
   }
 
@@ -714,38 +717,91 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
     });
   }
 
-  Widget _chipRiwayat(String label, String value) {
-    final selected = filterRiwayat == value;
-    return GestureDetector(
-      onTap: () {
-        if (value == 'custom') {
-          _pilihRentangRiwayat();
-        } else {
-          setState(() => filterRiwayat = value);
-        }
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: selected ? const Color(0xFF89B4FA) : const Color(0xFF45475A),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: selected ? const Color(0xFF89B4FA) : const Color(0xFF585B70),
-            width: 1,
+  Future<void> _bukaLihatSubmenuFilter() async {
+    final pilih = await showDialog<String>(
+      context: context,
+      builder: (c) => SimpleDialog(
+        title: const Text('Riwayat Penjualan'),
+        children: [
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(c, 'hari'),
+            child: Row(children: [
+              Icon(
+                filterRiwayat == 'hari' ? Icons.radio_button_checked : Icons.radio_button_off,
+                color: filterRiwayat == 'hari' ? const Color(0xFFA6E3A1) : Colors.white54,
+                size: 20,
+              ),
+              const SizedBox(width: 10),
+              Text('Hari Ini',
+                style: TextStyle(
+                  color: filterRiwayat == 'hari' ? const Color(0xFFA6E3A1) : Colors.white,
+                  fontWeight: filterRiwayat == 'hari' ? FontWeight.bold : FontWeight.normal,
+                )),
+            ]),
           ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            color: selected ? Colors.black : Colors.white,
-            fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(c, 'kemarin'),
+            child: Row(children: [
+              Icon(
+                filterRiwayat == 'kemarin' ? Icons.radio_button_checked : Icons.radio_button_off,
+                color: filterRiwayat == 'kemarin' ? const Color(0xFFA6E3A1) : Colors.white54,
+                size: 20,
+              ),
+              const SizedBox(width: 10),
+              Text('Kemarin',
+                style: TextStyle(
+                  color: filterRiwayat == 'kemarin' ? const Color(0xFFA6E3A1) : Colors.white,
+                  fontWeight: filterRiwayat == 'kemarin' ? FontWeight.bold : FontWeight.normal,
+                )),
+            ]),
           ),
-        ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(c, 'kemarin2'),
+            child: Row(children: [
+              Icon(
+                filterRiwayat == 'kemarin2' ? Icons.radio_button_checked : Icons.radio_button_off,
+                color: filterRiwayat == 'kemarin2' ? const Color(0xFFA6E3A1) : Colors.white54,
+                size: 20,
+              ),
+              const SizedBox(width: 10),
+              Text('Kemarin Lagi',
+                style: TextStyle(
+                  color: filterRiwayat == 'kemarin2' ? const Color(0xFFA6E3A1) : Colors.white,
+                  fontWeight: filterRiwayat == 'kemarin2' ? FontWeight.bold : FontWeight.normal,
+                )),
+            ]),
+          ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(c, 'rentang'),
+            child: Row(children: [
+              Icon(
+                filterRiwayat == 'custom' ? Icons.radio_button_checked : Icons.radio_button_off,
+                color: filterRiwayat == 'custom' ? const Color(0xFFA6E3A1) : Colors.white54,
+                size: 20,
+              ),
+              const SizedBox(width: 10),
+              Text(
+                filterRiwayat == 'custom' && _customT1 != null && _customT2 != null
+                    ? '${fmtTglPendek(tglStr(_customT1!))} - ${fmtTglPendek(tglStr(_customT2!))}'
+                    : 'Rentang...',
+                style: TextStyle(
+                  color: filterRiwayat == 'custom' ? const Color(0xFFA6E3A1) : Colors.white,
+                  fontWeight: filterRiwayat == 'custom' ? FontWeight.bold : FontWeight.normal,
+                ),
+              ),
+            ]),
+          ),
+        ],
       ),
     );
+    if (pilih == null) return;
+    if (pilih == 'rentang') {
+      _pilihRentangRiwayat();
+    } else {
+      setState(() => filterRiwayat = pilih);
+    }
   }
-    
+
   @override
   Widget build(BuildContext context) {
     final r = _riwayat();
@@ -770,7 +826,7 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
                   const Icon(Icons.qr_code, size: 16, color: Color(0xFF89B4FA)), const SizedBox(width: 4),
                   Text('Rp ${rp(_totalQris)}', style: const TextStyle(fontSize: 14, color: Color(0xFF89B4FA)))]),
               ])
-            : const Text('Total: ●●●●●●●', style: TextStyle(fontSize: 20, color: Color(0xFFA6E3A1)))),
+            : Text('$_labelOmset: ●●●●●●●', style: const TextStyle(fontSize: 20, color: Color(0xFFA6E3A1)))),
       ),
       const SizedBox(height: 2),
       const Text('(tahan untuk lihat omset)', style: TextStyle(fontSize: 10, color: Colors.white38)),
@@ -792,8 +848,13 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
             if (v == 'lihat') _bukaLihatSheet();
             else if (v == 'tarik') _tarikData();
             else if (v == 'mode') _gantiMode();
+            else if (v == 'filter') _bukaLihatSubmenuFilter();
           },
           itemBuilder: (c) => const [
+            PopupMenuItem(value: 'filter', child: Row(children: [
+              Icon(Icons.filter_list, color: Color(0xFFF9E2AF), size: 18),
+              SizedBox(width: 8), Text('Riwayat Penjualan')])),
+            PopupMenuDivider(),
             PopupMenuItem(value: 'lihat', child: Row(children: [
               Icon(Icons.table_chart, color: Color(0xFFA6E3A1), size: 18),
               SizedBox(width: 8), Text('Lihat Sheet')])),
@@ -830,24 +891,15 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
           child: Text(rp(n), style: const TextStyle(fontSize: 20, color: Colors.black, fontWeight: FontWeight.bold)))).toList()),
 
       const SizedBox(height: 20),
-      const Text('RIWAYAT PENJUALAN', style: TextStyle(fontSize: 14, color: Color(0xFF89B4FA))),
-      const SizedBox(height: 8),
-      Wrap(
-        spacing: 6, runSpacing: 6, alignment: WrapAlignment.center,
+      Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          _chipRiwayat('Hari Ini', 'hari'),
-          _chipRiwayat('Kemarin', 'kemarin'),
-          _chipRiwayat('Kemarin Lagi', 'kemarin2'),
-          _chipRiwayat(
-            filterRiwayat == 'custom' && _customT1 != null && _customT2 != null
-                ? '${fmtTglPendek(tglStr(_customT1!))} - ${fmtTglPendek(tglStr(_customT2!))}'
-                : '📅 Rentang',
-            'custom',
-          ),
+          const Text('RIWAYAT PENJUALAN',
+            style: TextStyle(fontSize: 14, color: Color(0xFF89B4FA))),
+          Text('($_labelFilterAktif)',
+            style: const TextStyle(fontSize: 12, color: Colors.white70)),
         ],
       ),
-      const SizedBox(height: 8),
-      Text(_labelRiwayat, style: const TextStyle(fontSize: 12, color: Colors.white70)),
       const SizedBox(height: 8),
       if (r.isEmpty)
         const Padding(padding: EdgeInsets.all(20), child: Text('Belum ada transaksi', style: TextStyle(color: Colors.grey)))
@@ -1016,7 +1068,6 @@ class _BendaharaPageState extends State<BendaharaPage> with WidgetsBindingObserv
   bool _sedangCek = false;
   bool _offline = false;
 
-  // ==== Cache saldo offline ====
   int _saldoLainCache = 0;
   int _saldoKeluarCache = 0;
   int _saldoTotalCache = 0;
