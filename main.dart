@@ -8,7 +8,7 @@ import 'package:http/http.dart' as http;
 
 // ================== KONFIGURASI ==================
 const String SCRIPT_URL =
-    'https://script.google.com/macros/s/AKfycbwFep4Th6FMZ-uob8fSjUKsBTU2boX-iK1i2gDlgKJT0E2dX4wxD0m5teRx-9dfS6g/exec';
+    'https://script.google.com/macros/s/AKfycby_dEA3ItIesV2hymlt2y4Y0LdZ0L5qN_fg-pD10kgZXdOtFX8EqoQBh5Kju3Auck4/exec';
 
 const String APP_HEADER = 'CIRENG WOII';
 
@@ -532,8 +532,7 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
     }
   }
 
-  int get _totalHarini =>
-      _riwayat().fold(0, (s, t) => s + t.nominal);
+  int get _totalHarini => _riwayat().fold(0, (s, t) => s + t.nominal);
   int get _totalTunai => _riwayat()
       .where((t) => t.metode == 'Tunai')
       .fold(0, (s, t) => s + t.nominal);
@@ -570,7 +569,9 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
       final pt = data.where((t) => !t.synced).toList();
       final pd = List<int>.from(delIds);
       if (pt.isEmpty && pd.isEmpty) {
-        if (mounted && !silent && attempt == 1) _snack('Semua data sudah tersinkron');
+        if (mounted && !silent && attempt == 1) {
+          _snack('Semua data sudah tersinkron');
+        }
         return;
       }
       setState(() {
@@ -650,7 +651,7 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
     ));
   }
 
-  // ========== TARIK DATA & GABUNG (ganti hapus hantu) ==========
+  // ========== TARIK & GABUNG ==========
   Future<void> _tarikDanGabung() async {
     if (syncing) return;
     setState(() {
@@ -1135,8 +1136,9 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
     b.writeln('\nTotal,,,$tot,\nTunai,,,$totT,\nQRIS,,,$totQ');
 
     final dir = await getTemporaryDirectory();
-    final nama =
-        (t1.isNotEmpty && t1 == t2) ? 'laporan_$t1.csv' : 'laporan_${t1}_sd_$t2.csv';
+    final nama = (t1.isNotEmpty && t1 == t2)
+        ? 'laporan_$t1.csv'
+        : 'laporan_${t1}_sd_$t2.csv';
     final file = File('${dir.path}/$nama');
     await file.writeAsString(b.toString());
     await Share.shareXFiles([XFile(file.path)], text: 'Laporan $tabKasir');
@@ -1313,7 +1315,9 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
                         borderRadius: BorderRadius.circular(24),
                       ),
                       child: Icon(
-                        syncing ? Icons.downloading : Icons.cloud_download,
+                        syncing
+                            ? Icons.downloading
+                            : Icons.cloud_download,
                         size: 28,
                         color: _syncColor,
                       ),
@@ -1341,18 +1345,20 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
                         backgroundColor: const Color(0xFFF9E2AF),
                         padding: const EdgeInsets.all(10),
                       ),
-                      onPressed: syncing
-                          ? null
-                          : () => _sync(retry: true),
+                      onPressed:
+                          syncing ? null : () => _sync(retry: true),
                       icon: syncing
                           ? const SizedBox(
                               width: 18,
                               height: 18,
                               child: CircularProgressIndicator(
                                   strokeWidth: 2, color: Colors.black))
-                          : const Icon(Icons.sync, color: Colors.black),
+                          : const Icon(Icons.cloud_upload,
+                              color: Colors.black),
                       label: Text(
-                        syncing ? 'SYNC $progress' : 'SYNC SEKARANG ($belumSync)',
+                        syncing
+                            ? 'SYNC $progress'
+                            : 'KIRIM KE SHEETS ($belumSync)',
                         style: const TextStyle(
                             color: Colors.black,
                             fontWeight: FontWeight.bold),
@@ -1997,8 +2003,8 @@ class _BendaharaPageState extends State<BendaharaPage>
         'nominal': t.nominal.toString(),
       });
 
-  Future<Map<String, dynamic>> _delPeng(int id) async => apiGet(
-      {'action': 'delete-pengeluaran', 'id': id.toString()});
+  Future<Map<String, dynamic>> _delPeng(int id) async =>
+      apiGet({'action': 'delete-pengeluaran', 'id': id.toString()});
 
   Future<Map<String, dynamic>> _upMasuk(PemasukanLain t) async => apiGet({
         'action': 'upsert-pemasukan',
@@ -2128,7 +2134,7 @@ class _BendaharaPageState extends State<BendaharaPage>
     }
   }
 
-  // ========== TARIK DATA & GABUNG ==========
+  // ========== TARIK & GABUNG ==========
   Future<void> _tarikDanGabung() async {
     if (syncing) return;
     setState(() {
