@@ -2201,23 +2201,20 @@ class _BendaharaPageState extends State<BendaharaPage>
       if (mounted) setState(() => _offline = true);
     }
   }
-
-  int get _saldoTampil {
-    if (!_offline &&
-        (saldoKasir > 0 || saldoLain > 0 || saldoKeluar > 0)) {
-      return saldoKasir + saldoLain - saldoKeluar;
-    }
-    if (!_cacheLoaded) return 0;
-    final pendingLain =
-        masuk.where((t) => !t.synced).fold(0, (s, t) => s + t.nominal);
-    final pendingKeluar =
-        peng.where((t) => !t.synced).fold(0, (s, t) => s + t.nominal);
-    if (_saldoTotalCache > 0) {
-      return _saldoTotalCache + pendingLain - pendingKeluar;
-    }
-    return _saldoLainCache - _saldoKeluarCache + pendingLain - pendingKeluar;
+ int get _saldoTampil {
+  // Kalau data internet sudah siap (saldoKasir dari server sudah masuk),
+  // pakai itu — fresh dari server
+  if (!_offline && saldoKasir > 0) {
+    return saldoKasir + saldoLain - saldoKeluar;
   }
-
+  // Kalau belum siap, pakai cache total + pending
+  if (!_cacheLoaded) return 0;
+  final pendingLain =
+      masuk.where((t) => !t.synced).fold(0, (s, t) => s + t.nominal);
+  final pendingKeluar =
+      peng.where((t) => !t.synced).fold(0, (s, t) => s + t.nominal);
+  return _saldoTotalCache + pendingLain - pendingKeluar;
+}
   Future<void> _cekHantu() async {
     if (_sedangCek || syncing) return;
     setState(() {
