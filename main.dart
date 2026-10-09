@@ -173,6 +173,20 @@ class PemasukanLain {
       );
 }
 
+// ============ MODEL BARU: MENU ITEM ============
+class MenuItem {
+  String nama;
+  int harga;
+  MenuItem({required this.nama, required this.harga});
+
+  Map<String, dynamic> toJson() => {'nama': nama, 'harga': harga};
+
+  factory MenuItem.fromJson(Map<String, dynamic> m) => MenuItem(
+        nama: (m['nama'] ?? '').toString(),
+        harga: (m['harga'] as num?)?.toInt() ?? 0,
+      );
+}
+
 // ================== SPLASH ==================
 class SplashPage extends StatefulWidget {
   const SplashPage({super.key});
@@ -375,10 +389,7 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
   bool _adaHantu = false;
   bool _sedangCek = false;
   bool _offline = false;
-  final nominals = [
-    5000, 10000, 15000, 20000, 25000,
-    30000, 35000, 40000, 45000, 50000
-  ];
+  List<MenuItem> menus = [];
   String filterRiwayat = 'hari';
   DateTime? _customT1, _customT2;
 
@@ -417,6 +428,7 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
     if (dd != null) {
       delIds = (jsonDecode(dd) as List).map((e) => e as int).toList();
     }
+    await _loadMenus();
     setState(() {});
     _sync(silent: true, retry: false);
     _cekHantu();
@@ -427,6 +439,52 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
     await p.setString('transaksi',
         jsonEncode(data.map((t) => t.toJson()).toList()));
     await p.setString('kasirDel', jsonEncode(delIds));
+  }
+
+  // ========== MENU CUSTOM ==========
+  Future<void> _loadMenus() async {
+    final p = await SharedPreferences.getInstance();
+    final s = p.getString('menus');
+    if (s != null) {
+      try {
+        menus = (jsonDecode(s) as List)
+            .map((e) => MenuItem.fromJson(e as Map<String, dynamic>))
+            .toList();
+      } catch (_) {
+        menus = _defaultMenus();
+      }
+    } else {
+      menus = _defaultMenus();
+    }
+    while (menus.length < 6) {
+      menus.add(MenuItem(nama: '', harga: 0));
+    }
+  }
+
+  Future<void> _saveMenus() async {
+    final p = await SharedPreferences.getInstance();
+    await p.setString('menus',
+        jsonEncode(menus.map((m) => m.toJson()).toList()));
+  }
+
+  List<MenuItem> _defaultMenus() => [
+        MenuItem(nama: 'Cireng', harga: 5000),
+        MenuItem(nama: 'Cireng', harga: 10000),
+        MenuItem(nama: 'Kentang', harga: 5000),
+        MenuItem(nama: 'Kentang', harga: 10000),
+        MenuItem(nama: 'Tahu', harga: 5000),
+        MenuItem(nama: 'Bakso', harga: 10000),
+      ];
+
+  Future<void> _openMenuSettings() async {
+    final result = await Navigator.push<List<MenuItem>>(
+      context,
+      MaterialPageRoute(builder: (_) => MenuSettingsPage(initial: menus)),
+    );
+    if (result != null) {
+      setState(() => menus = result);
+      await _saveMenus();
+    }
   }
 
   Future<void> _cekHantu() async {
@@ -765,12 +823,14 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
         context, MaterialPageRoute(builder: (_) => const BendaharaPage()));
   }
 
-  Future<void> _inputNominal(int n) async {
+  // ========== INPUT MENU (nama produk + harga) ==========
+  Future<void> _inputMenu(MenuItem m) async {
+    final n = m.harga;
     final h = await showDialog<String>(
       context: context,
       builder: (c) => AlertDialog(
         title: const Text('Konfirmasi'),
-        content: Text('Simpan transaksi ini?\n\nNominal: Rp ${rp(n)}'),
+        content: Text('${m.nama}\nRp ${rp(n)}\n\nSimpan transaksi ini?'),
         actions: [
           ElevatedButton(
             style: ElevatedButton.styleFrom(
@@ -991,108 +1051,10 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
       builder: (c) => SimpleDialog(
         title: const Text('Riwayat Penjualan'),
         children: [
-          SimpleDialogOption(
-            onPressed: () => Navigator.pop(c, 'hari'),
-            child: Row(children: [
-              Icon(
-                filterRiwayat == 'hari'
-                    ? Icons.radio_button_checked
-                    : Icons.radio_button_off,
-                color: filterRiwayat == 'hari'
-                    ? const Color(0xFFA6E3A1)
-                    : Colors.white54,
-                size: 20,
-              ),
-              const SizedBox(width: 10),
-              Text('Hari Ini',
-                  style: TextStyle(
-                    color: filterRiwayat == 'hari'
-                        ? const Color(0xFFA6E3A1)
-                        : Colors.white,
-                    fontWeight: filterRiwayat == 'hari'
-                        ? FontWeight.bold
-                        : FontWeight.normal,
-                  )),
-            ]),
-          ),
-          SimpleDialogOption(
-            onPressed: () => Navigator.pop(c, 'kemarin'),
-            child: Row(children: [
-              Icon(
-                filterRiwayat == 'kemarin'
-                    ? Icons.radio_button_checked
-                    : Icons.radio_button_off,
-                color: filterRiwayat == 'kemarin'
-                    ? const Color(0xFFA6E3A1)
-                    : Colors.white54,
-                size: 20,
-              ),
-              const SizedBox(width: 10),
-              Text('Kemarin',
-                  style: TextStyle(
-                    color: filterRiwayat == 'kemarin'
-                        ? const Color(0xFFA6E3A1)
-                        : Colors.white,
-                    fontWeight: filterRiwayat == 'kemarin'
-                        ? FontWeight.bold
-                        : FontWeight.normal,
-                  )),
-            ]),
-          ),
-          SimpleDialogOption(
-            onPressed: () => Navigator.pop(c, 'kemarin2'),
-            child: Row(children: [
-              Icon(
-                filterRiwayat == 'kemarin2'
-                    ? Icons.radio_button_checked
-                    : Icons.radio_button_off,
-                color: filterRiwayat == 'kemarin2'
-                    ? const Color(0xFFA6E3A1)
-                    : Colors.white54,
-                size: 20,
-              ),
-              const SizedBox(width: 10),
-              Text('Kemarin Lagi',
-                  style: TextStyle(
-                    color: filterRiwayat == 'kemarin2'
-                        ? const Color(0xFFA6E3A1)
-                        : Colors.white,
-                    fontWeight: filterRiwayat == 'kemarin2'
-                        ? FontWeight.bold
-                        : FontWeight.normal,
-                  )),
-            ]),
-          ),
-          SimpleDialogOption(
-            onPressed: () => Navigator.pop(c, 'rentang'),
-            child: Row(children: [
-              Icon(
-                filterRiwayat == 'custom'
-                    ? Icons.radio_button_checked
-                    : Icons.radio_button_off,
-                color: filterRiwayat == 'custom'
-                    ? const Color(0xFFA6E3A1)
-                    : Colors.white54,
-                size: 20,
-              ),
-              const SizedBox(width: 10),
-              Text(
-                filterRiwayat == 'custom' &&
-                        _customT1 != null &&
-                        _customT2 != null
-                    ? '${fmtTglPendek(tglStr(_customT1!))} - ${fmtTglPendek(tglStr(_customT2!))}'
-                    : 'Rentang...',
-                style: TextStyle(
-                  color: filterRiwayat == 'custom'
-                      ? const Color(0xFFA6E3A1)
-                      : Colors.white,
-                  fontWeight: filterRiwayat == 'custom'
-                      ? FontWeight.bold
-                      : FontWeight.normal,
-                ),
-              ),
-            ]),
-          ),
+          _optFilter(c, 'hari', 'Hari Ini'),
+          _optFilter(c, 'kemarin', 'Kemarin'),
+          _optFilter(c, 'kemarin2', 'Kemarin Lagi'),
+          _optFilter(c, 'rentang', 'Rentang...'),
         ],
       ),
     );
@@ -1102,6 +1064,34 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
     } else {
       setState(() => filterRiwayat = pilih);
     }
+  }
+
+  Widget _optFilter(BuildContext c, String val, String label) {
+    final aktif = filterRiwayat == val ||
+        (val == 'rentang' && filterRiwayat == 'custom');
+    return SimpleDialogOption(
+      onPressed: () => Navigator.pop(c, val),
+      child: Row(children: [
+        Icon(
+          aktif ? Icons.radio_button_checked : Icons.radio_button_off,
+          color: aktif ? const Color(0xFFA6E3A1) : Colors.white54,
+          size: 20,
+        ),
+        const SizedBox(width: 10),
+        Text(
+          val == 'rentang' &&
+                  filterRiwayat == 'custom' &&
+                  _customT1 != null &&
+                  _customT2 != null
+              ? '${fmtTglPendek(tglStr(_customT1!))} - ${fmtTglPendek(tglStr(_customT2!))}'
+              : label,
+          style: TextStyle(
+            color: aktif ? const Color(0xFFA6E3A1) : Colors.white,
+            fontWeight: aktif ? FontWeight.bold : FontWeight.normal,
+          ),
+        ),
+      ]),
+    );
   }
 
   Future<void> _openLaporan() async {
@@ -1161,6 +1151,9 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final r = _riwayat();
+    final menuAktif =
+        menus.where((m) => m.nama.isNotEmpty && m.harga > 0).take(6).toList();
+
     return Scaffold(
       body: SafeArea(
         child: SingleChildScrollView(
@@ -1271,9 +1264,20 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
                         _gantiMode();
                       } else if (v == 'filter') {
                         _bukaLihatSubmenuFilter();
+                      } else if (v == 'aturmenu') {
+                        _openMenuSettings();
                       }
                     },
                     itemBuilder: (c) => const [
+                      PopupMenuItem(
+                        value: 'aturmenu',
+                        child: Row(children: [
+                          Icon(Icons.tune,
+                              color: Color(0xFFCBA6F7), size: 18),
+                          SizedBox(width: 8),
+                          Text('Atur Menu'),
+                        ]),
+                      ),
                       PopupMenuItem(
                         value: 'filter',
                         child: Row(children: [
@@ -1367,28 +1371,66 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
                   ),
                 ),
               const SizedBox(height: 16),
-              GridView.count(
-                crossAxisCount: 2,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                childAspectRatio: 2.5,
-                mainAxisSpacing: 8,
-                crossAxisSpacing: 8,
-                children: nominals
-                    .map((n) => ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF89B4FA),
-                            padding: const EdgeInsets.all(8),
-                          ),
-                          onPressed: () => _inputNominal(n),
-                          child: Text(rp(n),
-                              style: const TextStyle(
-                                  fontSize: 20,
-                                  color: Colors.black,
-                                  fontWeight: FontWeight.bold)),
-                        ))
-                    .toList(),
-              ),
+
+              // ============ GRID MENU ============
+              if (menuAktif.isEmpty)
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF313244),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(children: [
+                    const Text('Menu belum diatur',
+                        style: TextStyle(color: Colors.white70)),
+                    const SizedBox(height: 8),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFCBA6F7)),
+                      onPressed: _openMenuSettings,
+                      icon: const Icon(Icons.tune, color: Colors.black),
+                      label: const Text('ATUR MENU',
+                          style: TextStyle(color: Colors.black)),
+                    ),
+                  ]),
+                )
+              else
+                GridView.count(
+                  crossAxisCount: 2,
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  childAspectRatio: 2.2,
+                  mainAxisSpacing: 8,
+                  crossAxisSpacing: 8,
+                  children: menuAktif
+                      .map((m) => ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF89B4FA),
+                              padding: const EdgeInsets.all(6),
+                            ),
+                            onPressed: () => _inputMenu(m),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(m.nama,
+                                    style: const TextStyle(
+                                        fontSize: 13,
+                                        color: Colors.black,
+                                        fontWeight: FontWeight.w600),
+                                    textAlign: TextAlign.center,
+                                    overflow: TextOverflow.ellipsis),
+                                const SizedBox(height: 2),
+                                Text('Rp ${rp(m.harga)}',
+                                    style: const TextStyle(
+                                        fontSize: 16,
+                                        color: Colors.black,
+                                        fontWeight: FontWeight.bold)),
+                              ],
+                            ),
+                          ))
+                      .toList(),
+                ),
+
               const SizedBox(height: 20),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1496,6 +1538,236 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
                           color: Colors.black,
                           fontWeight: FontWeight.bold)),
                 ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ================== MENU SETTINGS PAGE ==================
+class MenuSettingsPage extends StatefulWidget {
+  final List<MenuItem> initial;
+  const MenuSettingsPage({super.key, required this.initial});
+  @override
+  State<MenuSettingsPage> createState() => _MenuSettingsPageState();
+}
+
+class _MenuSettingsPageState extends State<MenuSettingsPage> {
+  late List<MenuItem> menus;
+
+  @override
+  void initState() {
+    super.initState();
+    menus = widget.initial
+        .map((m) => MenuItem(nama: m.nama, harga: m.harga))
+        .toList();
+    while (menus.length < 6) {
+      menus.add(MenuItem(nama: '', harga: 0));
+    }
+  }
+
+  Future<void> _edit(int index) async {
+    final m = menus[index];
+    final namaC = TextEditingController(text: m.nama);
+    final hargaC = TextEditingController(
+        text: m.harga > 0 ? m.harga.toString() : '');
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text('Menu ${index + 1}'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: namaC,
+                decoration: const InputDecoration(
+                    labelText: 'Nama produk',
+                    hintText: 'Contoh: Cireng'),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: hargaC,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                    labelText: 'Harga (Rp)',
+                    hintText: 'Contoh: 5000'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c, false),
+            child: const Text('BATAL'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFA6E3A1)),
+            onPressed: () => Navigator.pop(c, true),
+            child: const Text('SIMPAN',
+                style: TextStyle(color: Colors.black)),
+          ),
+        ],
+      ),
+    );
+
+    if (ok == true) {
+      final harga = int.tryParse(hargaC.text) ?? 0;
+      setState(() {
+        menus[index] = MenuItem(
+          nama: namaC.text.trim(),
+          harga: harga,
+        );
+      });
+    }
+  }
+
+  void _reset() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('Reset Menu?'),
+        content: const Text(
+            'Kembalikan ke menu default?\n\n'
+            'Cireng 5.000, Cireng 10.000\n'
+            'Kentang 5.000, Kentang 10.000\n'
+            'Tahu 5.000, Bakso 10.000'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: const Text('BATAL')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFF38BA8)),
+            onPressed: () => Navigator.pop(c, true),
+            child: const Text('RESET',
+                style: TextStyle(color: Colors.black)),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      setState(() {
+        menus = [
+          MenuItem(nama: 'Cireng', harga: 5000),
+          MenuItem(nama: 'Cireng', harga: 10000),
+          MenuItem(nama: 'Kentang', harga: 5000),
+          MenuItem(nama: 'Kentang', harga: 10000),
+          MenuItem(nama: 'Tahu', harga: 5000),
+          MenuItem(nama: 'Bakso', harga: 10000),
+        ];
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Atur Menu'),
+        backgroundColor: const Color(0xFF1E1E2E),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _reset,
+            tooltip: 'Reset ke default',
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF313244),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Text(
+                  'Tap salah satu tombol untuk ubah nama & harga.\n'
+                  'Kosongkan nama & harga = tombol disembunyikan.',
+                  style: TextStyle(fontSize: 12, color: Colors.white70),
+                ),
+              ),
+              const SizedBox(height: 16),
+              GridView.count(
+                crossAxisCount: 2,
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                childAspectRatio: 1.8,
+                mainAxisSpacing: 8,
+                crossAxisSpacing: 8,
+                children: List.generate(6, (i) {
+                  final m = menus[i];
+                  final kosong = m.nama.isEmpty || m.harga == 0;
+                  return GestureDetector(
+                    onTap: () => _edit(i),
+                    child: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: kosong
+                            ? const Color(0xFF45475A)
+                            : const Color(0xFF89B4FA),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: const Color(0xFFCBA6F7),
+                          width: 1,
+                        ),
+                      ),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            m.nama.isEmpty ? '(kosong)' : m.nama,
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: kosong ? Colors.white54 : Colors.black,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            textAlign: TextAlign.center,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            m.harga == 0 ? '—' : 'Rp ${rp(m.harga)}',
+                            style: TextStyle(
+                              fontSize: 16,
+                              color: kosong ? Colors.white38 : Colors.black,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Icon(Icons.edit,
+                              size: 12,
+                              color: kosong
+                                  ? Colors.white38
+                                  : Colors.black54),
+                        ],
+                      ),
+                    ),
+                  );
+                }),
+              ),
+              const SizedBox(height: 20),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFA6E3A1),
+                  padding: const EdgeInsets.all(14),
+                ),
+                onPressed: () => Navigator.pop(context, menus),
+                icon: const Icon(Icons.save, color: Colors.black),
+                label: const Text('SIMPAN MENU',
+                    style: TextStyle(
+                        color: Colors.black,
+                        fontWeight: FontWeight.bold)),
               ),
             ],
           ),
@@ -1818,6 +2090,7 @@ class _BendaharaPageState extends State<BendaharaPage>
   bool _adaHantu = false;
   bool _sedangCek = false;
   bool _offline = false;
+  bool _cacheLoaded = false;
 
   int _saldoLainCache = 0;
   int _saldoKeluarCache = 0;
@@ -1828,6 +2101,7 @@ class _BendaharaPageState extends State<BendaharaPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _loadDariCache();
     _load();
   }
 
@@ -1843,6 +2117,22 @@ class _BendaharaPageState extends State<BendaharaPage>
       _loadSaldo();
       _cekHantu();
     }
+  }
+
+  Future<void> _loadDariCache() async {
+    final p = await SharedPreferences.getInstance();
+    _saldoLainCache = p.getInt('saldoLainCache') ?? 0;
+    _saldoKeluarCache = p.getInt('saldoKeluarCache') ?? 0;
+    _saldoTotalCache = p.getInt('saldoTotalCache') ?? 0;
+    _waktuSaldoCache = p.getString('waktuSaldoCache') ?? '';
+
+    if (!mounted) return;
+    setState(() {
+      saldoLain = _saldoLainCache;
+      saldoKeluar = _saldoKeluarCache;
+      _offline = _waktuSaldoCache.isEmpty;
+      _cacheLoaded = true;
+    });
   }
 
   Future<void> _load() async {
@@ -1867,11 +2157,6 @@ class _BendaharaPageState extends State<BendaharaPage>
     if (mdd != null) {
       masukDel = (jsonDecode(mdd) as List).map((e) => e as int).toList();
     }
-    _saldoLainCache = p.getInt('saldoLainCache') ?? 0;
-    _saldoKeluarCache = p.getInt('saldoKeluarCache') ?? 0;
-    _saldoTotalCache = p.getInt('saldoTotalCache') ?? 0;
-    _waktuSaldoCache = p.getString('waktuSaldoCache') ?? '';
-    _offline = _waktuSaldoCache.isEmpty;
 
     setState(() {});
     _loadSaldo();
@@ -1918,12 +2203,19 @@ class _BendaharaPageState extends State<BendaharaPage>
   }
 
   int get _saldoTampil {
-    if (!_offline) return saldoKasir + saldoLain - saldoKeluar;
+    if (!_offline &&
+        (saldoKasir > 0 || saldoLain > 0 || saldoKeluar > 0)) {
+      return saldoKasir + saldoLain - saldoKeluar;
+    }
+    if (!_cacheLoaded) return 0;
     final pendingLain =
         masuk.where((t) => !t.synced).fold(0, (s, t) => s + t.nominal);
     final pendingKeluar =
         peng.where((t) => !t.synced).fold(0, (s, t) => s + t.nominal);
-    return _saldoTotalCache + pendingLain - pendingKeluar;
+    if (_saldoTotalCache > 0) {
+      return _saldoTotalCache + pendingLain - pendingKeluar;
+    }
+    return _saldoLainCache - _saldoKeluarCache + pendingLain - pendingKeluar;
   }
 
   Future<void> _cekHantu() async {
@@ -2134,7 +2426,6 @@ class _BendaharaPageState extends State<BendaharaPage>
     }
   }
 
-  // ========== TARIK & GABUNG ==========
   Future<void> _tarikDanGabung() async {
     if (syncing) return;
     setState(() {
