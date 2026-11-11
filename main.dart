@@ -467,7 +467,7 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
       } else {
         _snack('Gagal mencetak struk', err: true);
       }
-      await PrintBluetoothThermal.disconnect();
+      PrintBluetoothThermal.disconnect();
     } catch (e) {
       _snack('Error printer: $e', err: true);
     }
@@ -839,7 +839,7 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
         tanggal: tglStr(now),
         jam: jamStr(now),
         nominal: n,
-        metode: h,
+        metode: h!,
       );
       setState(() => data.add(b));
       await _save();
