@@ -5,11 +5,10 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
+import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 // ================== KONFIGURASI ==================
-const String SCRIPT_URL =
-    'https://script.google.com/macros/s/AKfycby_dEA3ItIesV2hymlt2y4Y0LdZ0L5qN_fg-pD10kgZXdOtFX8EqoQBh5Kju3Auck4/exec';
-
 const String APP_HEADER = 'CIRENG WOII';
 
 void main() => runApp(const KasirApp());
@@ -55,9 +54,14 @@ String fmtTglPendek(String tgl) {
   return '${p[2]} ${bln[int.parse(p[1]) - 1]} ${p[0]}';
 }
 
-Future<Map<String, dynamic>> apiGet(Map<String, String> params) async {
+Future> apiGet(Map<String, String> params) async {
   try {
-    final uri = Uri.parse(SCRIPT_URL).replace(queryParameters: params);
+    final prefs = await SharedPreferences.getInstance();
+    final scriptUrl = prefs.getString('scriptUrl') ?? '';
+    if (scriptUrl.isEmpty) {
+      return {'status': 'error', 'message': 'URL Script belum diatur di pengaturan'};
+    }
+    final uri = Uri.parse(scriptUrl).replace(queryParameters: params);
     final res = await http.get(uri).timeout(const Duration(seconds: 20));
     if (res.statusCode == 200) {
       final decoded = jsonDecode(res.body);
@@ -105,75 +109,6 @@ class Transaksi {
       );
 }
 
-class Pengeluaran {
-  final int id;
-  String tanggal, jam, keterangan;
-  int nominal;
-  bool synced;
-
-  Pengeluaran({
-    required this.id,
-    required this.tanggal,
-    required this.jam,
-    required this.keterangan,
-    required this.nominal,
-    this.synced = false,
-  });
-
-  Map<String, dynamic> toJson() => {
-        'id': id,
-        'tanggal': tanggal,
-        'jam': jam,
-        'keterangan': keterangan,
-        'nominal': nominal,
-        'synced': synced,
-      };
-
-  factory Pengeluaran.fromJson(Map<String, dynamic> m) => Pengeluaran(
-        id: m['id'],
-        tanggal: m['tanggal'],
-        jam: m['jam'],
-        keterangan: m['keterangan'],
-        nominal: m['nominal'],
-        synced: m['synced'] ?? false,
-      );
-}
-
-class PemasukanLain {
-  final int id;
-  String tanggal, jam, keterangan;
-  int nominal;
-  bool synced;
-
-  PemasukanLain({
-    required this.id,
-    required this.tanggal,
-    required this.jam,
-    required this.keterangan,
-    required this.nominal,
-    this.synced = false,
-  });
-
-  Map<String, dynamic> toJson() => {
-        'id': id,
-        'tanggal': tanggal,
-        'jam': jam,
-        'keterangan': keterangan,
-        'nominal': nominal,
-        'synced': synced,
-      };
-
-  factory PemasukanLain.fromJson(Map<String, dynamic> m) => PemasukanLain(
-        id: m['id'],
-        tanggal: m['tanggal'],
-        jam: m['jam'],
-        keterangan: m['keterangan'],
-        nominal: m['nominal'],
-        synced: m['synced'] ?? false,
-      );
-}
-
-// ============ MODEL BARU: MENU ITEM ============
 class MenuItem {
   String nama;
   int harga;
@@ -203,22 +138,15 @@ class _SplashPageState extends State<SplashPage> {
 
   Future<void> _cek() async {
     final p = await SharedPreferences.getInstance();
-    final mode = p.getString('mode');
     final nama = p.getString('namaKasir');
     if (!mounted) return;
 
-    if (mode == null) {
-      Navigator.pushReplacement(context,
-          MaterialPageRoute(builder: (_) => const PilihModePage()));
-    } else if (mode == 'kasir' && (nama == null || nama.isEmpty)) {
+    if (nama == null || nama.isEmpty) {
       Navigator.pushReplacement(context,
           MaterialPageRoute(builder: (_) => const SetupKasirPage()));
-    } else if (mode == 'kasir') {
-      Navigator.pushReplacement(context,
-          MaterialPageRoute(builder: (_) => const KasirPage()));
     } else {
       Navigator.pushReplacement(context,
-          MaterialPageRoute(builder: (_) => const BendaharaPage()));
+          MaterialPageRoute(builder: (_) => const KasirPage()));
     }
   }
 
@@ -226,74 +154,6 @@ class _SplashPageState extends State<SplashPage> {
   Widget build(BuildContext context) => const Scaffold(
         body: Center(child: CircularProgressIndicator()),
       );
-}
-
-// ================== PILIH MODE ==================
-class PilihModePage extends StatelessWidget {
-  const PilihModePage({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Text('PILIH MODE',
-                  style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 10),
-              const Text('Pilih sesuai peran HP ini:',
-                  style: TextStyle(color: Colors.white70)),
-              const SizedBox(height: 40),
-              _btn(context, 'KASIR', 'Untuk input penjualan', 'kasir'),
-              const SizedBox(height: 16),
-              _btn(context, 'KEUANGAN',
-                  'Untuk input pengeluaran & pemasukan', 'bendahara'),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _btn(BuildContext c, String t, String sub, String mode) {
-    return GestureDetector(
-      onTap: () async {
-        final p = await SharedPreferences.getInstance();
-        await p.setString('mode', mode);
-        if (!c.mounted) return;
-        if (mode == 'kasir') {
-          Navigator.pushReplacement(
-              c, MaterialPageRoute(builder: (_) => const SetupKasirPage()));
-        } else {
-          Navigator.pushReplacement(
-              c, MaterialPageRoute(builder: (_) => const BendaharaPage()));
-        }
-      },
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: const Color(0xFF313244),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFF89B4FA), width: 2),
-        ),
-        child: Column(
-          children: [
-            Text(t,
-                style: const TextStyle(
-                    fontSize: 20, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 6),
-            Text(sub,
-                style:
-                    const TextStyle(fontSize: 12, color: Colors.white70)),
-          ],
-        ),
-      ),
-    );
-  }
 }
 
 // ================== SETUP KASIR ==================
@@ -304,18 +164,37 @@ class SetupKasirPage extends StatefulWidget {
 }
 
 class _SetupKasirPageState extends State<SetupKasirPage> {
-  final c = TextEditingController();
-  String? err;
+  final namaC = TextEditingController();
+  final urlC = TextEditingController();
+  String? errNama;
+  String? errUrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadExistingUrl();
+  }
+
+  Future<void> _loadExistingUrl() async {
+    final p = await SharedPreferences.getInstance();
+    urlC.text = p.getString('scriptUrl') ?? '';
+  }
 
   Future<void> _simpan() async {
-    final nama = c.text.trim();
-    if (nama.isEmpty) {
-      setState(() => err = 'Wajib diisi');
-      return;
-    }
+    final nama = namaC.text.trim();
+    final url = urlC.text.trim();
+    setState(() {
+      errNama = nama.isEmpty ? 'Wajib diisi' : null;
+      errUrl = url.isEmpty ? 'Wajib diisi' : null;
+    });
+
+    if (nama.isEmpty || url.isEmpty) return;
+
     final p = await SharedPreferences.getInstance();
     await p.setString('namaKasir', nama);
     await p.setString('tabKasir', nama);
+    await p.setString('scriptUrl', url);
+
     if (!mounted) return;
     Navigator.pushReplacement(
         context, MaterialPageRoute(builder: (_) => const KasirPage()));
@@ -327,42 +206,55 @@ class _SetupKasirPageState extends State<SetupKasirPage> {
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.store, size: 80, color: Color(0xFF89B4FA)),
-              const SizedBox(height: 20),
-              const Text('NAMA TAB',
-                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              const Text('Nama ini akan jadi nama tab di Sheets',
-                  style: TextStyle(color: Colors.white70, fontSize: 12),
-                  textAlign: TextAlign.center),
-              const SizedBox(height: 20),
-              TextField(
-                controller: c,
-                textCapitalization: TextCapitalization.words,
-                decoration: InputDecoration(
-                  labelText: 'Nama Tab',
-                  hintText: 'Contoh: CIREng WOII',
-                  errorText: err,
-                  border: const OutlineInputBorder(),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const SizedBox(height: 20),
+                const Icon(Icons.store, size: 80, color: Color(0xFF89B4FA)),
+                const SizedBox(height: 20),
+                const Text('PENGATURAN AWAL',
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                const Text('Masukkan Nama Tab & URL Apps Script',
+                    style: TextStyle(color: Colors.white70, fontSize: 12),
+                    textAlign: TextAlign.center),
+                const SizedBox(height: 24),
+                TextField(
+                  controller: namaC,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: InputDecoration(
+                    labelText: 'Nama Tab (Kasir)',
+                    hintText: 'Contoh: CIREng WOII',
+                    errorText: errNama,
+                    border: const OutlineInputBorder(),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFA6E3A1),
-                      padding: const EdgeInsets.all(14)),
-                  onPressed: _simpan,
-                  child: const Text('SIMPAN',
-                      style: TextStyle(
-                          color: Colors.black, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: urlC,
+                  decoration: InputDecoration(
+                    labelText: 'URL Apps Script',
+                    hintText: 'https://script.google.com/...',
+                    errorText: errUrl,
+                    border: const OutlineInputBorder(),
+                  ),
                 ),
-              ),
-            ],
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFA6E3A1),
+                        padding: const EdgeInsets.all(14)),
+                    onPressed: _simpan,
+                    child: const Text('SIMPAN & MULAI',
+                        style: TextStyle(
+                            color: Colors.black, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -487,6 +379,103 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
     }
   }
 
+  // ========== PENGATURAN URL SCRIPT ==========
+  Future<void> _openUrlSettings() async {
+    final p = await SharedPreferences.getInstance();
+    final currentUrl = p.getString('scriptUrl') ?? '';
+    final urlC = TextEditingController(text: currentUrl);
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('Atur URL Apps Script'),
+        content: TextField(
+          controller: urlC,
+          decoration: const InputDecoration(
+            labelText: 'URL Apps Script',
+            hintText: 'https://script.google.com/...',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: const Text('BATAL')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFA6E3A1)),
+            onPressed: () => Navigator.pop(c, true),
+            child: const Text('SIMPAN', style: TextStyle(color: Colors.black)),
+          ),
+        ],
+      ),
+    );
+
+    if (ok == true) {
+      final newUrl = urlC.text.trim();
+      await p.setString('scriptUrl', newUrl);
+      _snack('✓ URL Script berhasil diperbarui', ok: true);
+      _cekHantu();
+    }
+  }
+
+  // ========== CETAK STRUK BLUETOOTH THERMAL 58mm ==========
+  Future<void> _cetakStruk(Transaksi t) async {
+    // Minta izin bluetooth terlebih dahulu
+    await [
+      Permission.bluetooth,
+      Permission.bluetoothConnect,
+      Permission.bluetoothScan,
+    ].request();
+
+    // Buka dialog untuk pilih perangkat printer yang sudah di-pairing
+    final perangkat = await Navigator.push<BluetoothInfo>(
+      context,
+      MaterialPageRoute(builder: (_) => const PrinterScanPage()),
+    );
+
+    if (perangkat == null) return;
+
+    try {
+      bool konek = await PrintBluetoothThermal.connect(macPrinterAddress: perangkat.macAdress);
+      if (!konek) {
+        _snack('Gagal terhubung ke printer', err: true);
+        return;
+      }
+
+      bool cetakData = await PrintBluetoothThermal.writeBytes(_formatStruk(t, tabKasir));
+      if (cetakData) {
+        _snack('✓ Struk berhasil dicetak', ok: true);
+      } else {
+        _snack('Gagal mencetak struk', err: true);
+      }
+      await PrintBluetoothThermal.disconnect();
+    } catch (e) {
+      _snack('Error printer: $e', err: typeError);
+    }
+  }
+
+  List<int> _formatStruk(Transaksi t, String kasir) {
+    List<int> bytes = [];
+    // Perintah ESC/POS untuk reset, center alignment, bold, dll.
+    bytes += [0x1B, 0x40]; // Inisialisasi
+    bytes += [0x1B, 0x61, 0x01]; // Center alignment
+    bytes += utf8.encode("$APP_HEADER\n");
+    bytes += utf8.encode("Kasir: $kasir\n");
+    bytes += utf8.encode("--------------------------------\n");
+    bytes += [0x1B, 0x61, 0x00]; // Left alignment
+    bytes += utf8.encode("Tanggal : ${t.tanggal} ${t.jam}\n");
+    bytes += utf8.encode("No. Trx  : #${t.id}\n");
+    bytes += utf8.encode("Metode  : ${t.metode}\n");
+    bytes += utf8.encode("--------------------------------\n");
+    bytes += [0x1B, 0x61, 0x02]; // Right alignment
+    bytes += utf8.encode("TOTAL: Rp ${rp(t.nominal)}\n");
+    bytes += [0x1B, 0x61, 0x01]; // Center alignment
+    bytes += utf8.encode("--------------------------------\n");
+    bytes += utf8.encode("Terima Kasih Atas Kunjungan Anda!\n\n\n");
+    return bytes;
+  }
+
   Future<void> _cekHantu() async {
     if (_sedangCek || syncing) return;
     setState(() {
@@ -598,7 +587,7 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
       .where((t) => t.metode == 'QRIS')
       .fold(0, (s, t) => s + t.nominal);
 
-  Future<Map<String, dynamic>> _upsert(Transaksi t) async => apiGet({
+  Future> _upsert(Transaksi t) async => apiGet({
         'action': 'upsert',
         'tab': tabKasir,
         'id': t.id.toString(),
@@ -608,7 +597,7 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
         'metode': t.metode,
       });
 
-  Future<Map<String, dynamic>> _delete(int id) async =>
+  Future> _delete(int id) async =>
       apiGet({'action': 'delete', 'tab': tabKasir, 'id': id.toString()});
 
   Future<void> _cobaSync(Transaksi t) async {
@@ -733,7 +722,7 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
       return;
     }
 
-    final listSheets = (r['data'] as List).cast<Map<String, dynamic>>();
+    final listSheets = (r['data'] as List).cast>();
     final idsHp = data.map((t) => t.id).toSet();
     int ditambah = 0;
     int dilewati = 0;
@@ -794,35 +783,6 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
     );
   }
 
-  Future<void> _gantiMode() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (c) => AlertDialog(
-        title: const Text('Ganti Mode?'),
-        content: const Text(
-            'Ganti dari KASIR ke KEUANGAN?\n\nData lokal tidak hilang.'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(c, false),
-              child: const Text('BATAL')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF89B4FA)),
-            onPressed: () => Navigator.pop(c, true),
-            child:
-                const Text('GANTI', style: TextStyle(color: Colors.black)),
-          ),
-        ],
-      ),
-    );
-    if (ok != true) return;
-    final p = await SharedPreferences.getInstance();
-    await p.setString('mode', 'bendahara');
-    if (!mounted) return;
-    Navigator.pushReplacement(
-        context, MaterialPageRoute(builder: (_) => const BendaharaPage()));
-  }
-
   // ========== INPUT MENU (nama produk + harga) ==========
   Future<void> _inputMenu(MenuItem m) async {
     final n = m.harga;
@@ -866,7 +826,33 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
       setState(() => data.add(b));
       await _save();
       _cobaSync(b);
+      
+      // Opsi otomatis tanya cetak struk
+      _tanyaCetak(b);
     }
+  }
+
+  void _tanyaCetak(Transaksi t) {
+    showDialog(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('Cetak Struk?'),
+        content: Text('Transaksi senilai Rp ${rp(t.nominal)} berhasil disimpan.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(c),
+              child: const Text('TIDAK')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFA6E3A1)),
+            onPressed: () {
+              Navigator.pop(c);
+              _cetakStruk(t);
+            },
+            child: const Text('CETAK', style: TextStyle(color: Colors.black)),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _edit(Transaksi t) async {
@@ -1260,12 +1246,12 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
                     onSelected: (v) {
                       if (v == 'lihat') {
                         _bukaLihatSheet();
-                      } else if (v == 'mode') {
-                        _gantiMode();
                       } else if (v == 'filter') {
                         _bukaLihatSubmenuFilter();
                       } else if (v == 'aturmenu') {
                         _openMenuSettings();
+                      } else if (v == 'atururl') {
+                        _openUrlSettings();
                       }
                     },
                     itemBuilder: (c) => const [
@@ -1276,6 +1262,15 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
                               color: Color(0xFFCBA6F7), size: 18),
                           SizedBox(width: 8),
                           Text('Atur Menu'),
+                        ]),
+                      ),
+                      PopupMenuItem(
+                        value: 'atururl',
+                        child: Row(children: [
+                          Icon(Icons.link,
+                              color: Color(0xFF89B4FA), size: 18),
+                          SizedBox(width: 8),
+                          Text('Atur URL Script'),
                         ]),
                       ),
                       PopupMenuItem(
@@ -1294,15 +1289,6 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
                               color: Color(0xFFA6E3A1), size: 18),
                           SizedBox(width: 8),
                           Text('Lihat Sheet'),
-                        ]),
-                      ),
-                      PopupMenuItem(
-                        value: 'mode',
-                        child: Row(children: [
-                          Icon(Icons.swap_horiz,
-                              color: Color(0xFF89B4FA), size: 18),
-                          SizedBox(width: 8),
-                          Text('Ganti Mode'),
                         ]),
                       ),
                     ],
@@ -1498,6 +1484,12 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
                           ),
                         ),
                         IconButton(
+                          icon: const Icon(Icons.print,
+                              color: Color(0xFFA6E3A1), size: 20),
+                          tooltip: 'Cetak Struk',
+                          onPressed: () => _cetakStruk(e.value),
+                        ),
+                        IconButton(
                           icon: const Icon(Icons.edit,
                               color: Color(0xFF89B4FA), size: 20),
                           onPressed: () => _edit(e.value),
@@ -1543,6 +1535,74 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
           ),
         ),
       ),
+    );
+  }
+}
+
+// ================== HALAMAN SCAN PRINTER BLUETOOTH ==================
+class PrinterScanPage extends StatefulWidget {
+  const PrinterScanPage({super.key});
+
+  @override
+  State<PrinterScanPage> createState() => _PrinterScanPageState();
+}
+
+class _PrinterScanPageState extends State<PrinterScanPage> {
+  List<BluetoothInfo> perangkatList = [];
+  bool scanning = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _scanPrinter();
+  }
+
+  Future<void> _scanPrinter() async {
+    setState(() => scanning = true);
+    try {
+      List<BluetoothInfo> list = await PrintBluetoothThermal.pairedBluetooths;
+      setState(() {
+        perangkatList = list;
+        scanning = false;
+      });
+    } catch (e) {
+      setState(() => scanning = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Pilih Printer Bluetooth'),
+        backgroundColor: const Color(0xFF1E1E2E),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: scanning ? null : _scanPrinter,
+          )
+        ],
+      ),
+      body: scanning
+          ? const Center(child: CircularProgressIndicator())
+          : perangkatList.isEmpty
+              ? const Center(
+                  child: Text('Tidak ada printer bluetooth ter-pairing.\nSilakan sambungkan lewat pengaturan Bluetooth HP.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.grey)),
+                )
+              : ListView.builder(
+                  itemCount: perangkatList.length,
+                  itemBuilder: (context, index) {
+                    final p = perangkatList[index];
+                    return ListTile(
+                      leading: const Icon(Icons.print, color: Color(0xFF89B4FA)),
+                      title: Text(p.name, style: const TextStyle(color: Colors.white)),
+                      subtitle: Text(p.macAdress, style: const TextStyle(color: Colors.white54)),
+                      onTap: () => Navigator.pop(context, p),
+                    );
+                  },
+                ),
     );
   }
 }
@@ -2069,1584 +2129,6 @@ class _LaporanPageState extends State<LaporanPage> {
       );
 }
 
-// ================== KEUANGAN PAGE ==================
-class BendaharaPage extends StatefulWidget {
-  const BendaharaPage({super.key});
-  @override
-  State<BendaharaPage> createState() => _BendaharaPageState();
-}
-
-class _BendaharaPageState extends State<BendaharaPage>
-    with WidgetsBindingObserver {
-  List<Pengeluaran> peng = [];
-  List<PemasukanLain> masuk = [];
-  List<int> pengDel = [];
-  List<int> masukDel = [];
-  bool syncing = false;
-  String progress = '';
-  String filterPeriode = 'bulan';
-  DateTime? customT1, customT2;
-  int saldoKasir = 0, saldoLain = 0, saldoKeluar = 0;
-  bool _adaHantu = false;
-  bool _sedangCek = false;
-  bool _offline = false;
-  bool _cacheLoaded = false;
-
-  int _saldoLainCache = 0;
-  int _saldoKeluarCache = 0;
-  int _saldoTotalCache = 0;
-  String _waktuSaldoCache = '';
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-    _loadDariCache();
-    _load();
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      _loadSaldo();
-      _cekHantu();
-    }
-  }
-
-  Future<void> _loadDariCache() async {
-    final p = await SharedPreferences.getInstance();
-    _saldoLainCache = p.getInt('saldoLainCache') ?? 0;
-    _saldoKeluarCache = p.getInt('saldoKeluarCache') ?? 0;
-    _saldoTotalCache = p.getInt('saldoTotalCache') ?? 0;
-    _waktuSaldoCache = p.getString('waktuSaldoCache') ?? '';
-
-    if (!mounted) return;
-    setState(() {
-      saldoLain = _saldoLainCache;
-      saldoKeluar = _saldoKeluarCache;
-      _offline = _waktuSaldoCache.isEmpty;
-      _cacheLoaded = true;
-    });
-  }
-
-  Future<void> _load() async {
-    final p = await SharedPreferences.getInstance();
-    final pd = p.getString('pengeluaran');
-    if (pd != null) {
-      peng = (jsonDecode(pd) as List)
-          .map((e) => Pengeluaran.fromJson(e as Map<String, dynamic>))
-          .toList();
-    }
-    final md = p.getString('pemasukanLain');
-    if (md != null) {
-      masuk = (jsonDecode(md) as List)
-          .map((e) => PemasukanLain.fromJson(e as Map<String, dynamic>))
-          .toList();
-    }
-    final pdd = p.getString('pengDel');
-    if (pdd != null) {
-      pengDel = (jsonDecode(pdd) as List).map((e) => e as int).toList();
-    }
-    final mdd = p.getString('masukDel');
-    if (mdd != null) {
-      masukDel = (jsonDecode(mdd) as List).map((e) => e as int).toList();
-    }
-
-    setState(() {});
-    _loadSaldo();
-    _sync(silent: true, retry: false);
-    _cekHantu();
-  }
-
-  Future<void> _save() async {
-    final p = await SharedPreferences.getInstance();
-    await p.setString('pengeluaran',
-        jsonEncode(peng.map((t) => t.toJson()).toList()));
-    await p.setString('pemasukanLain',
-        jsonEncode(masuk.map((t) => t.toJson()).toList()));
-    await p.setString('pengDel', jsonEncode(pengDel));
-    await p.setString('masukDel', jsonEncode(masukDel));
-  }
-
-  Future<void> _loadSaldo() async {
-    final r = await apiGet({'action': 'get-saldo'});
-    if (r['status'] == 'ok' && mounted) {
-      final kl = (r['totalKasir'] ?? 0).toInt();
-      final ln = (r['totalLain'] ?? 0).toInt();
-      final kr = (r['totalKeluar'] ?? 0).toInt();
-      final waktu =
-          '${jamStr(DateTime.now())} ${fmtTglPendek(tglStr(DateTime.now()))}';
-      setState(() {
-        saldoKasir = kl;
-        saldoLain = ln;
-        saldoKeluar = kr;
-        _offline = false;
-        _saldoLainCache = ln;
-        _saldoKeluarCache = kr;
-        _saldoTotalCache = kl + ln - kr;
-        _waktuSaldoCache = waktu;
-      });
-      final p = await SharedPreferences.getInstance();
-      await p.setInt('saldoLainCache', ln);
-      await p.setInt('saldoKeluarCache', kr);
-      await p.setInt('saldoTotalCache', kl + ln - kr);
-      await p.setString('waktuSaldoCache', waktu);
-    } else {
-      if (mounted) setState(() => _offline = true);
-    }
-  }
- int get _saldoTampil {
-  // Kalau data internet sudah siap (saldoKasir dari server sudah masuk),
-  // pakai itu — fresh dari server
-  if (!_offline && saldoKasir > 0) {
-    return saldoKasir + saldoLain - saldoKeluar;
-  }
-  // Kalau belum siap, pakai cache total + pending
-  if (!_cacheLoaded) return 0;
-  final pendingLain =
-      masuk.where((t) => !t.synced).fold(0, (s, t) => s + t.nominal);
-  final pendingKeluar =
-      peng.where((t) => !t.synced).fold(0, (s, t) => s + t.nominal);
-  return _saldoTotalCache + pendingLain - pendingKeluar;
-}
-  Future<void> _cekHantu() async {
-    if (_sedangCek || syncing) return;
-    setState(() {
-      _sedangCek = true;
-      _offline = false;
-    });
-    final r = await apiGet(
-        {'action': 'cek-hantu', 'mode': 'bendahara', 'hari': '7'});
-    if (!mounted) return;
-    if (r['status'] == 'ok') {
-      final idsP = ((r['idsP'] ?? []) as List)
-          .map((e) => (e['id'] as num).toInt())
-          .toSet();
-      final idsM = ((r['idsM'] ?? []) as List)
-          .map((e) => (e['id'] as num).toInt())
-          .toSet();
-      final hpP = peng.map((t) => t.id).toSet();
-      final hpM = masuk.map((t) => t.id).toSet();
-      final hP = idsP.where((id) => !hpP.contains(id)).toList();
-      final hM = idsM.where((id) => !hpM.contains(id)).toList();
-      setState(() {
-        _adaHantu = hP.isNotEmpty || hM.isNotEmpty;
-        _sedangCek = false;
-      });
-    } else {
-      setState(() {
-        _sedangCek = false;
-        _offline = true;
-      });
-    }
-  }
-
-  Color get _syncColor {
-    if (_sedangCek || syncing) return const Color(0xFF89B4FA);
-    if (_offline) return Colors.grey;
-    if (_adaHantu) return const Color(0xFFF9E2AF);
-    return const Color(0xFFCBA6F7);
-  }
-
-  bool _inPeriode(String tgl) {
-    final now = DateTime.now();
-    final today = tglStr(now);
-    switch (filterPeriode) {
-      case 'hari':
-        return tgl == today;
-      case 'minggu':
-        final wd = now.weekday;
-        final start = now.subtract(Duration(days: wd - 1));
-        return tgl.compareTo(tglStr(start)) >= 0 &&
-            tgl.compareTo(today) <= 0;
-      case 'bulan':
-        return tgl.startsWith(
-            '${now.year}-${now.month.toString().padLeft(2, '0')}');
-      case 'custom':
-        if (customT1 == null || customT2 == null) return false;
-        return tgl.compareTo(tglStr(customT1!)) >= 0 &&
-            tgl.compareTo(tglStr(customT2!)) <= 0;
-    }
-    return true;
-  }
-
-  List<Pengeluaran> get _pengFiltered =>
-      peng.where((p) => _inPeriode(p.tanggal)).toList().reversed.toList();
-  List<PemasukanLain> get _masukFiltered =>
-      masuk.where((m) => _inPeriode(m.tanggal)).toList().reversed.toList();
-  int get _totalPeng =>
-      _pengFiltered.fold(0, (s, t) => s + t.nominal);
-
-  Future<Map<String, dynamic>> _upPeng(Pengeluaran t) async => apiGet({
-        'action': 'upsert-pengeluaran',
-        'id': t.id.toString(),
-        'tanggal': t.tanggal,
-        'jam': t.jam,
-        'keterangan': t.keterangan,
-        'nominal': t.nominal.toString(),
-      });
-
-  Future<Map<String, dynamic>> _delPeng(int id) async =>
-      apiGet({'action': 'delete-pengeluaran', 'id': id.toString()});
-
-  Future<Map<String, dynamic>> _upMasuk(PemasukanLain t) async => apiGet({
-        'action': 'upsert-pemasukan',
-        'id': t.id.toString(),
-        'tanggal': t.tanggal,
-        'jam': t.jam,
-        'keterangan': t.keterangan,
-        'nominal': t.nominal.toString(),
-      });
-
-  Future<Map<String, dynamic>> _delMasuk(int id) async =>
-      apiGet({'action': 'delete-pemasukan', 'id': id.toString()});
-
-  int get belumSync =>
-      peng.where((t) => !t.synced).length +
-      masuk.where((t) => !t.synced).length +
-      pengDel.length +
-      masukDel.length;
-
-  Future<void> _sync({bool silent = false, bool retry = true}) async {
-    if (syncing) return;
-    int att = 0;
-    while (true) {
-      att++;
-      final pn = peng.where((t) => !t.synced).toList();
-      final mn = masuk.where((t) => !t.synced).toList();
-      final pd = List<int>.from(pengDel);
-      final md = List<int>.from(masukDel);
-
-      if (pn.isEmpty && mn.isEmpty && pd.isEmpty && md.isEmpty) {
-        if (mounted && !silent && att == 1) {
-          _snack('Semua data sudah tersinkron');
-        }
-        return;
-      }
-
-      setState(() {
-        syncing = true;
-        progress = 'Memulai...';
-      });
-      int ke = 0;
-      final total = pn.length + mn.length + pd.length + md.length;
-      int gagal = 0;
-      String err = '';
-      final sisaPd = <int>[];
-      final sisaMd = <int>[];
-
-      for (final id in pd) {
-        ke++;
-        if (mounted) setState(() => progress = 'Hapus PG $ke/$total');
-        final r = await _delPeng(id);
-        if (r['status'] != 'ok') {
-          sisaPd.add(id);
-          gagal++;
-          if (err.isEmpty) err = r['message'] ?? '?';
-        }
-        await Future.delayed(const Duration(milliseconds: 80));
-      }
-
-      for (final id in md) {
-        ke++;
-        if (mounted) setState(() => progress = 'Hapus PM $ke/$total');
-        final r = await _delMasuk(id);
-        if (r['status'] != 'ok') {
-          sisaMd.add(id);
-          gagal++;
-          if (err.isEmpty) err = r['message'] ?? '?';
-        }
-        await Future.delayed(const Duration(milliseconds: 80));
-      }
-
-      for (final t in pn) {
-        ke++;
-        if (mounted) setState(() => progress = 'Kirim PG $ke/$total');
-        final r = await _upPeng(t);
-        if (r['status'] == 'ok') {
-          t.synced = true;
-        } else {
-          gagal++;
-          if (err.isEmpty) err = r['message'] ?? '?';
-        }
-        await Future.delayed(const Duration(milliseconds: 80));
-      }
-
-      for (final t in mn) {
-        ke++;
-        if (mounted) setState(() => progress = 'Kirim PM $ke/$total');
-        final r = await _upMasuk(t);
-        if (r['status'] == 'ok') {
-          t.synced = true;
-        } else {
-          gagal++;
-          if (err.isEmpty) err = r['message'] ?? '?';
-        }
-        await Future.delayed(const Duration(milliseconds: 80));
-      }
-
-      pengDel = sisaPd;
-      masukDel = sisaMd;
-      await _save();
-
-      if (gagal == 0) {
-        if (mounted) {
-          setState(() {
-            syncing = false;
-            progress = '';
-          });
-        }
-        if (!silent) _snack('✓ Sync berhasil', ok: true);
-        _loadSaldo();
-        _cekHantu();
-        return;
-      }
-
-      if (!retry || att >= 5) {
-        if (mounted) {
-          setState(() {
-            syncing = false;
-            progress = '';
-          });
-        }
-        _snack('Gagal $att percobaan: $err', err: true);
-        return;
-      }
-      if (mounted) setState(() => progress = 'Retry 3 dtk...');
-      await Future.delayed(const Duration(seconds: 3));
-    }
-  }
-
-  Future<void> _tarikDanGabung() async {
-    if (syncing) return;
-    setState(() {
-      syncing = true;
-      progress = 'Ambil dari Sheets...';
-    });
-
-    final rP = await apiGet({'action': 'get-data-pengeluaran'});
-    final rM = await apiGet({'action': 'get-data-pemasukan'});
-
-    if (rP['status'] != 'ok' || rM['status'] != 'ok') {
-      if (mounted) {
-        setState(() {
-          syncing = false;
-          progress = '';
-        });
-      }
-      _snack('Gagal ambil data dari Sheets', err: true);
-      return;
-    }
-
-    final listP = (rP['data'] as List).cast<Map<String, dynamic>>();
-    final listM = (rM['data'] as List).cast<Map<String, dynamic>>();
-    final hpP = peng.map((t) => t.id).toSet();
-    final hpM = masuk.map((t) => t.id).toSet();
-
-    int tambahP = 0;
-    int tambahM = 0;
-
-    for (final item in listP) {
-      final id = (item['id'] as num).toInt();
-      if (hpP.contains(id)) continue;
-      peng.add(Pengeluaran(
-        id: id,
-        tanggal: (item['tanggal'] ?? '').toString(),
-        jam: (item['jam'] ?? '').toString(),
-        keterangan: (item['keterangan'] ?? '').toString(),
-        nominal: (item['nominal'] as num).toInt(),
-        synced: true,
-      ));
-      tambahP++;
-    }
-
-    for (final item in listM) {
-      final id = (item['id'] as num).toInt();
-      if (hpM.contains(id)) continue;
-      masuk.add(PemasukanLain(
-        id: id,
-        tanggal: (item['tanggal'] ?? '').toString(),
-        jam: (item['jam'] ?? '').toString(),
-        keterangan: (item['keterangan'] ?? '').toString(),
-        nominal: (item['nominal'] as num).toInt(),
-        synced: true,
-      ));
-      tambahM++;
-    }
-
-    await _save();
-    if (mounted) {
-      setState(() {
-        syncing = false;
-        progress = '';
-      });
-    }
-    await _loadSaldo();
-    await _cekHantu();
-
-    if (!mounted) return;
-    await showDialog(
-      context: context,
-      builder: (c) => AlertDialog(
-        title: const Text('✓ Tarik & Gabung Selesai'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('Data baru yang ditambahkan ke HP:'),
-              const SizedBox(height: 8),
-              Text('• Pengeluaran: $tambahP'),
-              Text('• Pemasukan Lain: $tambahM'),
-              const SizedBox(height: 12),
-              const Text(
-                'Data yang sudah ada di HP dilewati.\n'
-                'Google Sheets tidak diubah.',
-                style: TextStyle(fontSize: 11, color: Colors.white54),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(c), child: const Text('OK')),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _bukaLihatSheet() async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-          builder: (_) =>
-              const LihatSheetPage(mode: 'bendahara', tabKasir: null)),
-    );
-    _loadSaldo();
-    _cekHantu();
-  }
-
-  Future<void> _gantiMode() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (c) => AlertDialog(
-        title: const Text('Ganti Mode?'),
-        content: const Text(
-            'Ganti dari KEUANGAN ke KASIR?\n\nData lokal tidak hilang.'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(c, false),
-              child: const Text('BATAL')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF89B4FA)),
-            onPressed: () => Navigator.pop(c, true),
-            child:
-                const Text('GANTI', style: TextStyle(color: Colors.black)),
-          ),
-        ],
-      ),
-    );
-    if (ok != true) return;
-    final p = await SharedPreferences.getInstance();
-    await p.setString('mode', 'kasir');
-    if (!mounted) return;
-    final nama = p.getString('namaKasir');
-    if (nama == null || nama.isEmpty) {
-      Navigator.pushReplacement(
-          context, MaterialPageRoute(builder: (_) => const SetupKasirPage()));
-    } else {
-      Navigator.pushReplacement(
-          context, MaterialPageRoute(builder: (_) => const KasirPage()));
-    }
-  }
-
-  void _snack(String m, {bool ok = false, bool err = false}) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(m),
-      duration: const Duration(seconds: 4),
-      backgroundColor: ok
-          ? const Color(0xFF2D4F2D)
-          : err
-              ? const Color(0xFF7F3F3F)
-              : null,
-    ));
-  }
-
-  Future<void> _tambahPeng() async {
-    final tgl = TextEditingController(text: tglStr(DateTime.now()));
-    final ket = TextEditingController();
-    final nom = TextEditingController();
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (c) => AlertDialog(
-        title: const Text('Tambah Pengeluaran'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: tgl,
-                decoration: const InputDecoration(
-                    labelText: 'Tanggal (YYYY-MM-DD)'),
-              ),
-              TextField(
-                controller: ket,
-                decoration:
-                    const InputDecoration(labelText: 'Keterangan'),
-              ),
-              TextField(
-                controller: nom,
-                keyboardType: TextInputType.number,
-                decoration:
-                    const InputDecoration(labelText: 'Nominal (Rp)'),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(c, false),
-              child: const Text('BATAL')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFA6E3A1)),
-            onPressed: () => Navigator.pop(c, true),
-            child: const Text('SIMPAN',
-                style: TextStyle(color: Colors.black)),
-          ),
-        ],
-      ),
-    );
-    if (ok != true) return;
-    final n = int.tryParse(nom.text);
-    if (n == null || n <= 0 || ket.text.trim().isEmpty) {
-      _snack('Data tidak valid', err: true);
-      return;
-    }
-    final now = DateTime.now();
-    final p = Pengeluaran(
-      id: nowStamp(),
-      tanggal: tgl.text.trim(),
-      jam: jamStr(now),
-      keterangan: ket.text.trim(),
-      nominal: n,
-    );
-    setState(() => peng.add(p));
-    await _save();
-    final r = await _upPeng(p);
-    if (r['status'] == 'ok') {
-      setState(() => p.synced = true);
-      await _save();
-      _loadSaldo();
-    }
-  }
-
-  Future<void> _tambahMasuk() async {
-    final tgl = TextEditingController(text: tglStr(DateTime.now()));
-    final ket = TextEditingController();
-    final nom = TextEditingController();
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (c) => AlertDialog(
-        title: const Text('Tambah Pemasukan Lain'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: tgl,
-                decoration: const InputDecoration(
-                    labelText: 'Tanggal (YYYY-MM-DD)'),
-              ),
-              TextField(
-                controller: ket,
-                decoration:
-                    const InputDecoration(labelText: 'Keterangan'),
-              ),
-              TextField(
-                controller: nom,
-                keyboardType: TextInputType.number,
-                decoration:
-                    const InputDecoration(labelText: 'Nominal (Rp)'),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(c, false),
-              child: const Text('BATAL')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFA6E3A1)),
-            onPressed: () => Navigator.pop(c, true),
-            child: const Text('SIMPAN',
-                style: TextStyle(color: Colors.black)),
-          ),
-        ],
-      ),
-    );
-    if (ok != true) return;
-    final n = int.tryParse(nom.text);
-    if (n == null || n <= 0 || ket.text.trim().isEmpty) {
-      _snack('Data tidak valid', err: true);
-      return;
-    }
-    final now = DateTime.now();
-    final m = PemasukanLain(
-      id: nowStamp(),
-      tanggal: tgl.text.trim(),
-      jam: jamStr(now),
-      keterangan: ket.text.trim(),
-      nominal: n,
-    );
-    setState(() => masuk.add(m));
-    await _save();
-    final r = await _upMasuk(m);
-    if (r['status'] == 'ok') {
-      setState(() => m.synced = true);
-      await _save();
-      _loadSaldo();
-    }
-  }
-
-  Future<void> _editPeng(Pengeluaran t) async {
-    final ket = TextEditingController(text: t.keterangan);
-    final nom = TextEditingController(text: t.nominal.toString());
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (c) => AlertDialog(
-        title: const Text('Edit Pengeluaran'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: ket,
-                decoration:
-                    const InputDecoration(labelText: 'Keterangan'),
-              ),
-              TextField(
-                controller: nom,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Nominal'),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(c, false),
-              child: const Text('BATAL')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFA6E3A1)),
-            onPressed: () => Navigator.pop(c, true),
-            child: const Text('SIMPAN',
-                style: TextStyle(color: Colors.black)),
-          ),
-        ],
-      ),
-    );
-    if (ok == true) {
-      final n = int.tryParse(nom.text);
-      if (n != null && n > 0) {
-        setState(() {
-          t.keterangan = ket.text.trim();
-          t.nominal = n;
-          t.synced = false;
-        });
-        await _save();
-        final r = await _upPeng(t);
-        if (r['status'] == 'ok') {
-          setState(() => t.synced = true);
-          await _save();
-          _loadSaldo();
-        }
-      }
-    }
-  }
-
-  Future<void> _editMasuk(PemasukanLain t) async {
-    final ket = TextEditingController(text: t.keterangan);
-    final nom = TextEditingController(text: t.nominal.toString());
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (c) => AlertDialog(
-        title: const Text('Edit Pemasukan Lain'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: ket,
-                decoration:
-                    const InputDecoration(labelText: 'Keterangan'),
-              ),
-              TextField(
-                controller: nom,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Nominal'),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(c, false),
-              child: const Text('BATAL')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFA6E3A1)),
-            onPressed: () => Navigator.pop(c, true),
-            child: const Text('SIMPAN',
-                style: TextStyle(color: Colors.black)),
-          ),
-        ],
-      ),
-    );
-    if (ok == true) {
-      final n = int.tryParse(nom.text);
-      if (n != null && n > 0) {
-        setState(() {
-          t.keterangan = ket.text.trim();
-          t.nominal = n;
-          t.synced = false;
-        });
-        await _save();
-        final r = await _upMasuk(t);
-        if (r['status'] == 'ok') {
-          setState(() => t.synced = true);
-          await _save();
-          _loadSaldo();
-        }
-      }
-    }
-  }
-
-  Future<void> _hapusPeng(Pengeluaran t) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (c) => AlertDialog(
-        title: const Text('Hapus?'),
-        content:
-            Text('Hapus pengeluaran "${t.keterangan}" Rp ${rp(t.nominal)}?'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(c, false),
-              child: const Text('BATAL')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFF38BA8)),
-            onPressed: () => Navigator.pop(c, true),
-            child:
-                const Text('HAPUS', style: TextStyle(color: Colors.black)),
-          ),
-        ],
-      ),
-    );
-    if (ok == true) {
-      setState(() {
-        peng.removeWhere((x) => x.id == t.id);
-        pengDel.add(t.id);
-      });
-      await _save();
-      _sync(silent: true, retry: true);
-      _loadSaldo();
-    }
-  }
-
-  Future<void> _hapusMasuk(PemasukanLain t) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (c) => AlertDialog(
-        title: const Text('Hapus?'),
-        content:
-            Text('Hapus pemasukan "${t.keterangan}" Rp ${rp(t.nominal)}?'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(c, false),
-              child: const Text('BATAL')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFF38BA8)),
-            onPressed: () => Navigator.pop(c, true),
-            child:
-                const Text('HAPUS', style: TextStyle(color: Colors.black)),
-          ),
-        ],
-      ),
-    );
-    if (ok == true) {
-      setState(() {
-        masuk.removeWhere((x) => x.id == t.id);
-        masukDel.add(t.id);
-      });
-      await _save();
-      _sync(silent: true, retry: true);
-      _loadSaldo();
-    }
-  }
-
-  Future<void> _lihatSaldo() async {
-    await _loadSaldo();
-    if (!mounted) return;
-    final offlineSkrg = _offline;
-    final lainTampil = offlineSkrg ? _saldoLainCache : saldoLain;
-    final keluarTampil = offlineSkrg ? _saldoKeluarCache : saldoKeluar;
-    final saldoTampil = _saldoTampil;
-
-    await showDialog<void>(
-      context: context,
-      builder: (c) => AlertDialog(
-        title: Row(children: [
-          const Text('Rincian Saldo'),
-          const Spacer(),
-          Icon(
-            offlineSkrg ? Icons.cloud_off : Icons.cloud_done,
-            size: 18,
-            color: offlineSkrg ? Colors.grey : const Color(0xFF89B4FA),
-          ),
-        ]),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (offlineSkrg)
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  margin: const EdgeInsets.only(bottom: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    'Mode offline. Terakhir sync: ${_waktuSaldoCache.isEmpty ? "-" : _waktuSaldoCache}',
-                    style: const TextStyle(
-                        fontSize: 11, color: Colors.white70),
-                  ),
-                ),
-              Text('Pemasukan Kasir: Rp ${rp(saldoKasir)}'),
-              Text('Pemasukan Lain: Rp ${rp(lainTampil)}'),
-              Text('Pengeluaran: Rp ${rp(keluarTampil)}'),
-              const Divider(),
-              Text('SALDO: Rp ${rp(saldoTampil)}',
-                  style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFFA6E3A1),
-                      fontSize: 16)),
-              const SizedBox(height: 8),
-              Text(
-                offlineSkrg
-                    ? 'Offline: saldo = cache + pending'
-                    : 'Akumulatif semua waktu',
-                style: const TextStyle(
-                    fontSize: 11, color: Colors.white54),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(c),
-              child: const Text('TUTUP')),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _lihatPenjualan() async {
-    final r = await apiGet({'action': 'get-penjualan'});
-    if (!mounted) return;
-    if (r['status'] != 'ok') {
-      _snack('Gagal ambil data', err: true);
-      return;
-    }
-    final list = (r['data'] as List).cast<Map<String, dynamic>>();
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-          builder: (_) => PenjualanKasirPage(data: list)),
-    );
-  }
-
-  Future<void> _pilihFilter() async {
-    final pilih = await showDialog<String>(
-      context: context,
-      builder: (c) => SimpleDialog(
-        title: const Text('Filter Periode'),
-        children: [
-          SimpleDialogOption(
-              onPressed: () => Navigator.pop(c, 'hari'),
-              child: const Text('Hari Ini')),
-          SimpleDialogOption(
-              onPressed: () => Navigator.pop(c, 'minggu'),
-              child: const Text('Minggu Ini')),
-          SimpleDialogOption(
-              onPressed: () => Navigator.pop(c, 'bulan'),
-              child: const Text('Bulan Ini')),
-          SimpleDialogOption(
-              onPressed: () => Navigator.pop(c, 'custom'),
-              child: const Text('Pilih Tanggal...')),
-        ],
-      ),
-    );
-    if (pilih == null) return;
-    if (pilih == 'custom') {
-      final r = await showDateRangePicker(
-        context: context,
-        firstDate: DateTime(2020),
-        lastDate: DateTime(2100),
-        helpText: 'PILIH RENTANG',
-        saveText: 'PILIH',
-        cancelText: 'BATAL',
-        builder: (c, ch) => Theme(
-          data: ThemeData.dark().copyWith(
-            colorScheme: const ColorScheme.dark(
-              primary: Color(0xFF89B4FA),
-              onPrimary: Colors.black,
-              surface: Color(0xFF1E1E2E),
-              onSurface: Colors.white,
-            ),
-          ),
-          child: ch!,
-        ),
-      );
-      if (r == null) return;
-      setState(() {
-        filterPeriode = 'custom';
-        customT1 = r.start;
-        customT2 = r.end;
-      });
-    } else {
-      setState(() => filterPeriode = pilih);
-    }
-  }
-
-  String get _filterLabel {
-    switch (filterPeriode) {
-      case 'hari':
-        return 'Hari Ini';
-      case 'minggu':
-        return 'Minggu Ini';
-      case 'bulan':
-        return 'Bulan Ini';
-      case 'custom':
-        return customT1 != null && customT2 != null
-            ? '${fmtTglPendek(tglStr(customT1!))} - ${fmtTglPendek(tglStr(customT2!))}'
-            : 'Pilih Tanggal';
-    }
-    return 'Bulan Ini';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final pf = _pengFiltered;
-    final mf = _masukFiltered;
-    return Scaffold(
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Text('KEUANGAN',
-                      style: TextStyle(
-                          fontSize: 24, fontWeight: FontWeight.bold)),
-                  const SizedBox(width: 8),
-                  PopupMenuButton<String>(
-                    icon: const Icon(Icons.more_vert,
-                        color: Colors.white70, size: 20),
-                    onSelected: (v) {
-                      if (v == 'lihat') {
-                        _bukaLihatSheet();
-                      } else if (v == 'mode') {
-                        _gantiMode();
-                      }
-                    },
-                    itemBuilder: (c) => const [
-                      PopupMenuItem(
-                        value: 'lihat',
-                        child: Row(children: [
-                          Icon(Icons.table_chart,
-                              color: Color(0xFFA6E3A1), size: 18),
-                          SizedBox(width: 8),
-                          Text('Lihat Sheet'),
-                        ]),
-                      ),
-                      PopupMenuItem(
-                        value: 'mode',
-                        child: Row(children: [
-                          Icon(Icons.swap_horiz,
-                              color: Color(0xFF89B4FA), size: 18),
-                          SizedBox(width: 8),
-                          Text('Ganti Mode'),
-                        ]),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              GestureDetector(
-                onTap: _lihatSaldo,
-                child: Container(
-                  padding: const EdgeInsets.all(14),
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF313244),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: _offline
-                          ? Colors.grey.withOpacity(0.4)
-                          : const Color(0xFF89B4FA).withOpacity(0.4),
-                      width: 1,
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(children: [
-                              const Text('💰',
-                                  style: TextStyle(fontSize: 16)),
-                              Text('SALDO',
-                                  style: TextStyle(
-                                      color: _offline
-                                          ? Colors.grey
-                                          : const Color(0xFFA6E3A1))),
-                              const SizedBox(width: 6),
-                              Icon(
-                                _offline
-                                    ? Icons.cloud_off
-                                    : Icons.cloud_done,
-                                size: 14,
-                                color: _offline
-                                    ? Colors.grey
-                                    : const Color(0xFF89B4FA),
-                              ),
-                            ]),
-                            const SizedBox(height: 4),
-                            Text('Rp ${rp(_saldoTampil)}',
-                                style: const TextStyle(
-                                    fontSize: 20,
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold)),
-                            if (_offline && _waktuSaldoCache.isNotEmpty)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 2),
-                                child: Text(
-                                    '(offline - terakhir sync $_waktuSaldoCache)',
-                                    style: const TextStyle(
-                                        fontSize: 9,
-                                        color: Colors.white38)),
-                              ),
-                          ],
-                        ),
-                      ),
-                      Icon(Icons.remove_red_eye,
-                          color: _offline
-                              ? Colors.grey
-                              : const Color(0xFF89B4FA),
-                          size: 28),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF313244),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(children: const [
-                          Text('📉', style: TextStyle(fontSize: 16)),
-                          SizedBox(width: 4),
-                          Text('PENGELUARAN',
-                              style:
-                                  TextStyle(color: Color(0xFFF38BA8))),
-                        ]),
-                        GestureDetector(
-                          onTap: _pilihFilter,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF45475A),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Row(children: [
-                              Text(_filterLabel,
-                                  style: const TextStyle(
-                                      fontSize: 12,
-                                      color: Color(0xFF89B4FA))),
-                              const Icon(Icons.arrow_drop_down,
-                                  size: 18, color: Color(0xFF89B4FA)),
-                            ]),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Text('Rp ${rp(_totalPeng)}',
-                        style: const TextStyle(
-                            fontSize: 20,
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold)),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 10),
-              Row(children: [
-                Expanded(
-                  flex: 70,
-                  child: ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFF38BA8),
-                      padding:
-                          const EdgeInsets.symmetric(vertical: 14),
-                    ),
-                    onPressed: _tambahPeng,
-                    icon: const Icon(Icons.add, color: Colors.black),
-                    label: const Text('TAMBAH PENGELUARAN',
-                        style: TextStyle(
-                            color: Colors.black,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold)),
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-                  flex: 30,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF89B4FA),
-                      padding:
-                          const EdgeInsets.symmetric(vertical: 14),
-                    ),
-                    onPressed: _tambahMasuk,
-                    child: const Text('Lain',
-                        style: TextStyle(
-                            color: Colors.black,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold)),
-                  ),
-                ),
-              ]),
-              const SizedBox(height: 10),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    belumSync == 0 ? Icons.cloud_done : Icons.cloud_off,
-                    color: _sedangCek
-                        ? const Color(0xFF89B4FA)
-                        : belumSync == 0
-                            ? const Color(0xFFA6E3A1)
-                            : const Color(0xFFF9E2AF),
-                    size: 16,
-                  ),
-                  const SizedBox(width: 4),
-                  Flexible(
-                    child: Text(
-                      syncing && progress.isNotEmpty
-                          ? progress
-                          : belumSync == 0
-                              ? 'Semua tersinkron'
-                              : '$belumSync data pending',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: _sedangCek
-                            ? const Color(0xFF89B4FA)
-                            : belumSync == 0
-                                ? const Color(0xFFA6E3A1)
-                                : const Color(0xFFF9E2AF),
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  GestureDetector(
-                    onTap: () {
-                      if (!syncing) _tarikDanGabung();
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: _syncColor.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(24),
-                      ),
-                      child: Icon(
-                        syncing
-                            ? Icons.downloading
-                            : Icons.cloud_download,
-                        size: 32,
-                        color: _syncColor,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              if (_adaHantu)
-                Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Text(
-                    '📥 Ada data baru di Sheets. Tap ⬇️ untuk tarik & gabung.',
-                    style: TextStyle(
-                        fontSize: 11, color: const Color(0xFFF9E2AF)),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              if (belumSync > 0)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFF9E2AF),
-                        padding: const EdgeInsets.all(10),
-                      ),
-                      onPressed:
-                          syncing ? null : () => _sync(retry: true),
-                      icon: syncing
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: Colors.black))
-                          : const Icon(Icons.cloud_upload,
-                              color: Colors.black),
-                      label: Text(
-                        syncing
-                            ? 'SYNC $progress'
-                            : 'KIRIM KE SHEETS ($belumSync)',
-                        style: const TextStyle(
-                            color: Colors.black,
-                            fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                  ),
-                ),
-              const SizedBox(height: 16),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Text('DAFTAR PENGELUARAN (${pf.length})',
-                    style: const TextStyle(
-                        fontSize: 13, color: Color(0xFF89B4FA))),
-              ),
-              const SizedBox(height: 8),
-              if (pf.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.all(12),
-                  child: Text('Belum ada pengeluaran',
-                      style: TextStyle(color: Colors.grey)),
-                )
-              else
-                ...pf.map((t) => Container(
-                      margin: const EdgeInsets.only(bottom: 6),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF313244),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(children: [
-                        Icon(
-                          t.synced
-                              ? Icons.cloud_done
-                              : Icons.cloud_off,
-                          color: t.synced
-                              ? const Color(0xFFA6E3A1)
-                              : const Color(0xFFF9E2AF),
-                          size: 14,
-                        ),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                  '${fmtTglPendek(t.tanggal)} - ${t.keterangan}',
-                                  style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 13)),
-                              Text('Rp ${rp(t.nominal)}',
-                                  style: const TextStyle(
-                                      color: Color(0xFFF38BA8),
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.bold)),
-                            ],
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.edit,
-                              size: 20, color: Color(0xFF89B4FA)),
-                          onPressed: () => _editPeng(t),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.delete,
-                              size: 20, color: Color(0xFFF38BA8)),
-                          onPressed: () => _hapusPeng(t),
-                        ),
-                      ]),
-                    )),
-              const SizedBox(height: 16),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Text('DAFTAR PEMASUKAN LAIN (${mf.length})',
-                    style: const TextStyle(
-                        fontSize: 13, color: Color(0xFF89B4FA))),
-              ),
-              const SizedBox(height: 8),
-              if (mf.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.all(12),
-                  child: Text('Belum ada pemasukan lain',
-                      style: TextStyle(color: Colors.grey)),
-                )
-              else
-                ...mf.map((t) => Container(
-                      margin: const EdgeInsets.only(bottom: 6),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF313244),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(children: [
-                        Icon(
-                          t.synced
-                              ? Icons.cloud_done
-                              : Icons.cloud_off,
-                          color: t.synced
-                              ? const Color(0xFFA6E3A1)
-                              : const Color(0xFFF9E2AF),
-                          size: 14,
-                        ),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                  '${fmtTglPendek(t.tanggal)} - ${t.keterangan}',
-                                  style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 13)),
-                              Text('Rp ${rp(t.nominal)}',
-                                  style: const TextStyle(
-                                      color: Color(0xFFA6E3A1),
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.bold)),
-                            ],
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.edit,
-                              size: 20, color: Color(0xFF89B4FA)),
-                          onPressed: () => _editMasuk(t),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.delete,
-                              size: 20, color: Color(0xFFF38BA8)),
-                          onPressed: () => _hapusMasuk(t),
-                        ),
-                      ]),
-                    )),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF45475A),
-                    padding: const EdgeInsets.all(10),
-                  ),
-                  onPressed: _lihatPenjualan,
-                  icon: const Icon(Icons.visibility,
-                      color: Colors.white),
-                  label: const Text('LIHAT PENJUALAN KASIR',
-                      style: TextStyle(
-                          color: Colors.white, fontSize: 12)),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ================== HALAMAN PENJUALAN KASIR ==================
-class PenjualanKasirPage extends StatefulWidget {
-  final List<Map<String, dynamic>> data;
-  const PenjualanKasirPage({super.key, required this.data});
-
-  @override
-  State<PenjualanKasirPage> createState() => _PenjualanKasirPageState();
-}
-
-class _PenjualanKasirPageState extends State<PenjualanKasirPage> {
-  String filter = 'bulan';
-
-  bool _inPeriode(String tgl) {
-    final now = DateTime.now();
-    final today = tglStr(now);
-    switch (filter) {
-      case 'hari':
-        return tgl == today;
-      case 'minggu':
-        final wd = now.weekday;
-        final start = now.subtract(Duration(days: wd - 1));
-        return tgl.compareTo(tglStr(start)) >= 0 &&
-            tgl.compareTo(today) <= 0;
-      case 'bulan':
-        return tgl.startsWith(
-            '${now.year}-${now.month.toString().padLeft(2, '0')}');
-    }
-    return true;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final f = widget.data
-        .where((t) => _inPeriode((t['tanggal'] ?? '').toString()))
-        .toList();
-    final total =
-        f.fold<int>(0, (s, t) => s + ((t['nominal'] ?? 0) as int));
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Penjualan Kasir'),
-        backgroundColor: const Color(0xFF1E1E2E),
-      ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Wrap(spacing: 6, children: [
-                ChoiceChip(
-                  label: const Text('Hari Ini'),
-                  selected: filter == 'hari',
-                  onSelected: (_) => setState(() => filter = 'hari'),
-                ),
-                ChoiceChip(
-                  label: const Text('Minggu Ini'),
-                  selected: filter == 'minggu',
-                  onSelected: (_) => setState(() => filter = 'minggu'),
-                ),
-                ChoiceChip(
-                  label: const Text('Bulan Ini'),
-                  selected: filter == 'bulan',
-                  onSelected: (_) => setState(() => filter = 'bulan'),
-                ),
-              ]),
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF313244),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Column(children: [
-                  Text('Total: Rp ${rp(total)}',
-                      style: const TextStyle(
-                          fontSize: 18,
-                          color: Color(0xFFA6E3A1),
-                          fontWeight: FontWeight.bold)),
-                  Text('${f.length} transaksi',
-                      style: const TextStyle(
-                          color: Colors.white70, fontSize: 12)),
-                ]),
-              ),
-              const SizedBox(height: 12),
-              if (f.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.all(20),
-                  child: Text('Tidak ada data',
-                      style: TextStyle(color: Colors.grey)),
-                )
-              else
-                ...f.reversed.map((t) {
-                  final tgl = (t['tanggal'] ?? '').toString();
-                  final jam = (t['jam'] ?? '').toString();
-                  final tab = (t['tab'] ?? '').toString();
-                  final metode = (t['metode'] ?? 'Tunai').toString();
-                  final nominal = (t['nominal'] ?? 0) as int;
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 6),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF313244),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(children: [
-                      Icon(
-                        metode == 'QRIS'
-                            ? Icons.qr_code
-                            : Icons.payments,
-                        size: 18,
-                        color: metode == 'QRIS'
-                            ? const Color(0xFF89B4FA)
-                            : const Color(0xFFA6E3A1),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                                '${fmtTglPendek(tgl)} - $jam',
-                                style: const TextStyle(
-                                    color: Colors.white, fontSize: 13)),
-                            if (tab.isNotEmpty)
-                              Text(tab,
-                                  style: const TextStyle(
-                                      color: Colors.white54,
-                                      fontSize: 11)),
-                          ],
-                        ),
-                      ),
-                      Text('Rp ${rp(nominal)}',
-                          style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold)),
-                    ]),
-                  );
-                }),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 // ================== HALAMAN LIHAT SHEET ==================
 class LihatSheetPage extends StatefulWidget {
   final String mode;
@@ -3661,7 +2143,7 @@ class LihatSheetPage extends StatefulWidget {
 class _LihatSheetPageState extends State<LihatSheetPage> {
   bool loading = true;
   String? error;
-  Map<String, List<Map<String, dynamic>>> dataPerTab = {};
+  Map<String, List>> dataPerTab = {};
   List<String> urutanTab = [];
   Set<String> expandedTabs = {};
 
@@ -3677,59 +2159,29 @@ class _LihatSheetPageState extends State<LihatSheetPage> {
       error = null;
     });
 
-    if (widget.mode == 'kasir') {
-      final tab = widget.tabKasir ?? '';
-      if (tab.isEmpty) {
-        setState(() {
-          loading = false;
-          error = 'Tab kasir belum diset';
-        });
-        return;
-      }
-      final r = await apiGet({'action': 'get-data-tab', 'tab': tab});
-      if (!mounted) return;
-      if (r['status'] != 'ok') {
-        setState(() {
-          loading = false;
-          error = r['message'] ?? 'Gagal';
-        });
-        return;
-      }
-      final list = (r['data'] as List).cast<Map<String, dynamic>>();
+    final tab = widget.tabKasir ?? '';
+    if (tab.isEmpty) {
       setState(() {
         loading = false;
-        urutanTab = [tab];
-        dataPerTab = {tab: list};
+        error = 'Tab kasir belum diset';
       });
-    } else {
-      final rTabs = await apiGet({'action': 'list-tabs'});
-      if (!mounted) return;
-      if (rTabs['status'] != 'ok') {
-        setState(() {
-          loading = false;
-          error = rTabs['message'] ?? 'Gagal ambil daftar tab';
-        });
-        return;
-      }
-      final tabs = (rTabs['tabs'] as List)
-          .map((e) => e.toString())
-          .toList();
-      final hasil = <String, List<Map<String, dynamic>>>{};
-      for (final tab in tabs) {
-        final r = await apiGet({'action': 'get-data-tab', 'tab': tab});
-        if (r['status'] == 'ok') {
-          hasil[tab] = (r['data'] as List).cast<Map<String, dynamic>>();
-        } else {
-          hasil[tab] = [];
-        }
-      }
-      if (!mounted) return;
-      setState(() {
-        loading = false;
-        urutanTab = tabs;
-        dataPerTab = hasil;
-      });
+      return;
     }
+    final r = await apiGet({'action': 'get-data-tab', 'tab': tab});
+    if (!mounted) return;
+    if (r['status'] != 'ok') {
+      setState(() {
+        loading = false;
+        error = r['message'] ?? 'Gagal';
+      });
+      return;
+    }
+    final list = (r['data'] as List).cast>();
+    setState(() {
+      loading = false;
+      urutanTab = [tab];
+      dataPerTab = {tab: list};
+    });
   }
 
   void _showProgress(String msg) {
@@ -3763,9 +2215,7 @@ class _LihatSheetPageState extends State<LihatSheetPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.mode == 'kasir'
-            ? 'Sheet - ${widget.tabKasir}'
-            : 'Lihat Sheet'),
+        title: Text('Sheet - ${widget.tabKasir}'),
         backgroundColor: const Color(0xFF1E1E2E),
         actions: [
           IconButton(
@@ -3818,7 +2268,7 @@ class _LihatSheetPageState extends State<LihatSheetPage> {
     );
   }
 
-  Widget _buildTabCard(String tab, List<Map<String, dynamic>> dataTab) {
+  Widget _buildTabCard(String tab, List> dataTab) {
     final total = dataTab.fold<int>(
         0, (s, t) => s + ((t['nominal'] ?? 0) as int));
     final isKosong = dataTab.isEmpty;
@@ -3968,7 +2418,7 @@ class _LihatSheetPageState extends State<LihatSheetPage> {
   }
 
   Future<void> _hapusRentang(
-      String tab, List<Map<String, dynamic>> dataTab) async {
+      String tab, List> dataTab) async {
     if (dataTab.isEmpty) {
       _snack('Tidak ada data di tab ini');
       return;
