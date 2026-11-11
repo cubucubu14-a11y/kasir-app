@@ -33,17 +33,25 @@ jobs:
       - name: Copy main.dart
         run: cp main.dart lib/main.dart
 
-      - name: Pastikan izin INTERNET
+      - name: Tambah izin INTERNET + BLUETOOTH
         run: |
           MANIFEST=android/app/src/main/AndroidManifest.xml
+          # INTERNET
           if ! grep -q 'android.permission.INTERNET' $MANIFEST; then
             sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/>\n    <application|' $MANIFEST
+          fi
+          # BLUETOOTH (Android 12+)
+          if ! grep -q 'android.permission.BLUETOOTH_CONNECT' $MANIFEST; then
+            sed -i 's|<application|<uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30"/>\n    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30"/>\n    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>\n    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"/>\n    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30"/>\n    <application|' $MANIFEST
           fi
 
       - name: Update Kotlin ke 1.9.22
         run: |
           if [ -f "android/settings.gradle" ]; then
             sed -i 's/org\.jetbrains\.kotlin\.android" version "[^"]*"/org.jetbrains.kotlin.android" version "1.9.22"/g' android/settings.gradle || true
+          fi
+          if [ -f "android/settings.gradle.kts" ]; then
+            sed -i 's/org\.jetbrains\.kotlin\.android" version "[^"]*"/org.jetbrains.kotlin.android" version "1.9.22"/g' android/settings.gradle.kts || true
           fi
           if [ -f "android/build.gradle" ]; then
             sed -i "s/ext.kotlin_version = .*/ext.kotlin_version = '1.9.22'/" android/build.gradle || true
