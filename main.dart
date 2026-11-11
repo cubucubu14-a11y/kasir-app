@@ -342,7 +342,8 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
     } else {
       menus = _defaultMenus();
     }
-    while (menus.length < 6) {
+    // Tidak ada batasan 6 menu lagi, minimal 1 menu jika kosong
+    if (menus.isEmpty) {
       menus.add(MenuItem(nama: '', harga: 0));
     }
   }
@@ -467,7 +468,10 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
       } else {
         _snack('Gagal mencetak struk', err: true);
       }
-        Future.microtask(() => PrintBluetoothThermal.disconnect);
+      
+      // PERBAIKAN DISCONNECT: pakai Future.microtask tanpa kurung kurawal
+      Future.microtask(() => PrintBluetoothThermal.disconnect);
+      
     } catch (e) {
       _snack('Error printer: $e', err: true);
     }
@@ -1627,123 +1631,6 @@ class _PrinterScanPageState extends State<PrinterScanPage> {
   }
 }
 
-// ================== MENU SETTINGS PAGE ==================
-class MenuSettingsPage extends StatefulWidget {
-  final List<MenuItem> initial;
-  const MenuSettingsPage({super.key, required this.initial});
-  @override
-  State<MenuSettingsPage> createState() => _MenuSettingsPageState();
-}
-
-class _MenuSettingsPageState extends State<MenuSettingsPage> {
-  late List<MenuItem> menus;
-
-  @override
-  void initState() {
-    super.initState();
-    menus = widget.initial
-        .map((m) => MenuItem(nama: m.nama, harga: m.harga))
-        .toList();
-    while (menus.length < 6) {
-      menus.add(MenuItem(nama: '', harga: 0));
-    }
-  }
-
-  Future<void> _edit(int index) async {
-    final m = menus[index];
-    final namaC = TextEditingController(text: m.nama);
-    final hargaC = TextEditingController(
-        text: m.harga > 0 ? m.harga.toString() : '');
-
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (c) => AlertDialog(
-        title: Text('Menu ${index + 1}'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: namaC,
-                decoration: const InputDecoration(
-                    labelText: 'Nama produk',
-                    hintText: 'Contoh: Cireng'),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: hargaC,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                    labelText: 'Harga (Rp)',
-                    hintText: 'Contoh: 5000'),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(c, false),
-            child: const Text('BATAL'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFA6E3A1)),
-            onPressed: () => Navigator.pop(c, true),
-            child: const Text('SIMPAN',
-                style: TextStyle(color: Colors.black)),
-          ),
-        ],
-      ),
-    );
-
-    if (ok == true) {
-      final harga = int.tryParse(hargaC.text) ?? 0;
-      setState(() {
-        menus[index] = MenuItem(nama: namaC.text.trim(), harga: harga);
-      });
-    }
-  }
-
-  void _reset() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (c) => AlertDialog(
-        title: const Text('Reset Menu?'),
-        content: const Text(
-            'Kembalikan ke menu default?\n\n'
-            'Cireng 5.000, Cireng 10.000\n'
-            'Kentang 5.000, Kentang 10.000\n'
-            'Tahu 5.000, Bakso 10.000'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(c, false),
-              child: const Text('BATAL')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFF38BA8)),
-            onPressed: () => Navigator.pop(c, true),
-            child: const Text('RESET',
-                style: TextStyle(color: Colors.black)),
-          ),
-        ],
-      ),
-    );
-    if (ok == true) {
-      setState(() {
-        menus = [
-          MenuItem(nama: 'Cireng', harga: 5000),
-          MenuItem(nama: 'Cireng', harga: 10000),
-          MenuItem(nama: 'Kentang', harga: 5000),
-          MenuItem(nama: 'Kentang', harga: 10000),
-          MenuItem(nama: 'Tahu', harga: 5000),
-          MenuItem(nama: 'Bakso', harga: 10000),
-        ];
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
 // ================== MENU SETTINGS PAGE (BISA SCROLL & TAMBAH) ==================
 class MenuSettingsPage extends StatefulWidget {
   final List<MenuItem> initial;
@@ -1758,11 +1645,9 @@ class _MenuSettingsPageState extends State<MenuSettingsPage> {
   @override
   void initState() {
     super.initState();
-    // Copy data dari halaman sebelumnya
     menus = widget.initial
         .map((m) => MenuItem(nama: m.nama, harga: m.harga))
         .toList();
-    // Pastikan minimal ada 1 menu untuk tampilan awal
     if (menus.isEmpty) {
       menus.add(MenuItem(nama: '', harga: 0));
     }
@@ -1822,7 +1707,6 @@ class _MenuSettingsPageState extends State<MenuSettingsPage> {
 
   void _tambahMenu() {
     setState(() {
-      // Tambah 1 slot kosong
       menus.add(MenuItem(nama: '', harga: 0));
     });
   }
@@ -1905,7 +1789,6 @@ class _MenuSettingsPageState extends State<MenuSettingsPage> {
         ],
       ),
       body: SafeArea(
-        // Ubah menjadi ListView agar seluruh halaman bisa di-scroll
         child: ListView(
           padding: const EdgeInsets.all(12),
           children: [
@@ -1923,8 +1806,6 @@ class _MenuSettingsPageState extends State<MenuSettingsPage> {
               ),
             ),
             const SizedBox(height: 16),
-            
-            // List menu yang bisa di-scroll
             ...menus.asMap().entries.map((entry) {
               final i = entry.key;
               final m = entry.value;
@@ -1963,10 +1844,7 @@ class _MenuSettingsPageState extends State<MenuSettingsPage> {
                 ),
               );
             }),
-            
             const SizedBox(height: 10),
-            
-            // Tombol Tambah Menu Baru
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFFCBA6F7),
@@ -1977,10 +1855,7 @@ class _MenuSettingsPageState extends State<MenuSettingsPage> {
               label: const Text('TAMBAH MENU BARU',
                   style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
             ),
-            
             const SizedBox(height: 20),
-            
-            // Tombol Simpan
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFFA6E3A1),
@@ -1991,7 +1866,7 @@ class _MenuSettingsPageState extends State<MenuSettingsPage> {
               label: const Text('SIMPAN MENU',
                   style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
             ),
-            const SizedBox(height: 30), // Jarak bawah
+            const SizedBox(height: 30),
           ],
         ),
       ),
