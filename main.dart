@@ -421,14 +421,12 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
 
   // ========== CETAK STRUK BLUETOOTH THERMAL 58mm ==========
   Future<void> _cetakStruk(Transaksi t) async {
-    // Minta izin bluetooth terlebih dahulu
     await [
       Permission.bluetooth,
       Permission.bluetoothConnect,
       Permission.bluetoothScan,
     ].request();
 
-    // Buka dialog untuk pilih perangkat printer yang sudah di-pairing
     final perangkat = await Navigator.push<BluetoothInfo>(
       context,
       MaterialPageRoute(builder: (_) => const PrinterScanPage()),
@@ -451,26 +449,25 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
       }
       await PrintBluetoothThermal.disconnect();
     } catch (e) {
-      _snack('Error printer: $e', err: typeError);
+      _snack('Error printer: $e', err: true);
     }
   }
 
   List<int> _formatStruk(Transaksi t, String kasir) {
     List<int> bytes = [];
-    // Perintah ESC/POS untuk reset, center alignment, bold, dll.
-    bytes += [0x1B, 0x40]; // Inisialisasi
-    bytes += [0x1B, 0x61, 0x01]; // Center alignment
+    bytes += [0x1B, 0x40]; 
+    bytes += [0x1B, 0x61, 0x01]; 
     bytes += utf8.encode("$APP_HEADER\n");
     bytes += utf8.encode("Kasir: $kasir\n");
     bytes += utf8.encode("--------------------------------\n");
-    bytes += [0x1B, 0x61, 0x00]; // Left alignment
+    bytes += [0x1B, 0x61, 0x00]; 
     bytes += utf8.encode("Tanggal : ${t.tanggal} ${t.jam}\n");
     bytes += utf8.encode("No. Trx  : #${t.id}\n");
     bytes += utf8.encode("Metode  : ${t.metode}\n");
     bytes += utf8.encode("--------------------------------\n");
-    bytes += [0x1B, 0x61, 0x02]; // Right alignment
+    bytes += [0x1B, 0x61, 0x02]; 
     bytes += utf8.encode("TOTAL: Rp ${rp(t.nominal)}\n");
-    bytes += [0x1B, 0x61, 0x01]; // Center alignment
+    bytes += [0x1B, 0x61, 0x01]; 
     bytes += utf8.encode("--------------------------------\n");
     bytes += utf8.encode("Terima Kasih Atas Kunjungan Anda!\n\n\n");
     return bytes;
@@ -821,13 +818,11 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
         tanggal: tglStr(now),
         jam: jamStr(now),
         nominal: n,
-        metode: h!,
+        metode: h,
       );
       setState(() => data.add(b));
       await _save();
       _cobaSync(b);
-      
-      // Opsi otomatis tanya cetak struk
       _tanyaCetak(b);
     }
   }
