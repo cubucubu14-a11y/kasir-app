@@ -1,5 +1,5 @@
 name: kasir_app
-description: Aplikasi kasir sederhana
+description: Aplikasi Kasir Cireng
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -9,12 +9,17 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  shared_preferences: 2.2.2
-  share_plus: 7.2.1
-  path_provider: 2.1.2
-  http: 1.2.0
-  print_bluetooth_thermal: ^1.0.8
-  permission_handler: ^11.3.1
+  shared_preferences: ^2.2.0
+  share_plus: ^7.2.0
+  http: ^1.1.0
+  path_provider: ^2.1.0
+  print_bluetooth_thermal: ^1.0.0
+  permission_handler: ^11.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^2.0.0
 
 flutter:
   uses-material-design: true
