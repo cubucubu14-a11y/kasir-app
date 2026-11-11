@@ -1165,7 +1165,7 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final r = _riwayat();
     final menuAktif =
-        menus.where((m) => m.nama.isNotEmpty && m.harga > 0).take(6).toList();
+        menus.where((m) => m.nama.isNotEmpty && m.harga > 0).toList();
 
     return Scaffold(
       body: SafeArea(
@@ -1744,6 +1744,154 @@ class _MenuSettingsPageState extends State<MenuSettingsPage> {
 
   @override
   Widget build(BuildContext context) {
+// ================== MENU SETTINGS PAGE (BISA SCROLL & TAMBAH) ==================
+class MenuSettingsPage extends StatefulWidget {
+  final List<MenuItem> initial;
+  const MenuSettingsPage({super.key, required this.initial});
+  @override
+  State<MenuSettingsPage> createState() => _MenuSettingsPageState();
+}
+
+class _MenuSettingsPageState extends State<MenuSettingsPage> {
+  late List<MenuItem> menus;
+
+  @override
+  void initState() {
+    super.initState();
+    // Copy data dari halaman sebelumnya
+    menus = widget.initial
+        .map((m) => MenuItem(nama: m.nama, harga: m.harga))
+        .toList();
+    // Pastikan minimal ada 1 menu untuk tampilan awal
+    if (menus.isEmpty) {
+      menus.add(MenuItem(nama: '', harga: 0));
+    }
+  }
+
+  Future<void> _edit(int index) async {
+    final m = menus[index];
+    final namaC = TextEditingController(text: m.nama);
+    final hargaC = TextEditingController(
+        text: m.harga > 0 ? m.harga.toString() : '');
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text('Menu ${index + 1}'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: namaC,
+                decoration: const InputDecoration(
+                    labelText: 'Nama produk', hintText: 'Contoh: Cireng'),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: hargaC,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                    labelText: 'Harga (Rp)', hintText: 'Contoh: 5000'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c, false),
+            child: const Text('BATAL'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFA6E3A1)),
+            onPressed: () => Navigator.pop(c, true),
+            child: const Text('SIMPAN', style: TextStyle(color: Colors.black)),
+          ),
+        ],
+      ),
+    );
+
+    if (ok == true) {
+      final harga = int.tryParse(hargaC.text) ?? 0;
+      setState(() {
+        menus[index] = MenuItem(nama: namaC.text.trim(), harga: harga);
+      });
+    }
+  }
+
+  void _tambahMenu() {
+    setState(() {
+      // Tambah 1 slot kosong
+      menus.add(MenuItem(nama: '', harga: 0));
+    });
+  }
+
+  void _hapusMenu(int index) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('Hapus Menu?'),
+        content: const Text('Yakin ingin menghapus menu ini dari daftar?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: const Text('BATAL')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFF38BA8)),
+            onPressed: () => Navigator.pop(c, true),
+            child: const Text('HAPUS', style: TextStyle(color: Colors.black)),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      setState(() {
+        menus.removeAt(index);
+      });
+    }
+  }
+
+  void _reset() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('Reset Menu?'),
+        content: const Text(
+            'Kembalikan ke menu default?\n\n'
+            'Cireng 5.000, Cireng 10.000\n'
+            'Kentang 5.000, Kentang 10.000\n'
+            'Tahu 5.000, Bakso 10.000'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: const Text('BATAL')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFF38BA8)),
+            onPressed: () => Navigator.pop(c, true),
+            child: const Text('RESET', style: TextStyle(color: Colors.black)),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      setState(() {
+        menus = [
+          MenuItem(nama: 'Cireng', harga: 5000),
+          MenuItem(nama: 'Cireng', harga: 10000),
+          MenuItem(nama: 'Kentang', harga: 5000),
+          MenuItem(nama: 'Kentang', harga: 10000),
+          MenuItem(nama: 'Tahu', harga: 5000),
+          MenuItem(nama: 'Bakso', harga: 10000),
+        ];
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Atur Menu'),
@@ -1757,97 +1905,94 @@ class _MenuSettingsPageState extends State<MenuSettingsPage> {
         ],
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
+        // Ubah menjadi ListView agar seluruh halaman bisa di-scroll
+        child: ListView(
           padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(12),
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFF313244),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Text(
+                'Tap tombol untuk ubah nama & harga.\n'
+                'Tekan ikon tong sampah untuk menghapus.\n'
+                'Kosongkan nama & harga = tombol disembunyikan di kasir.',
+                style: TextStyle(fontSize: 12, color: Colors.white70),
+              ),
+            ),
+            const SizedBox(height: 16),
+            
+            // List menu yang bisa di-scroll
+            ...menus.asMap().entries.map((entry) {
+              final i = entry.key;
+              final m = entry.value;
+              final kosong = m.nama.isEmpty || m.harga == 0;
+              return Container(
+                margin: const EdgeInsets.only(bottom: 8),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF313244),
-                  borderRadius: BorderRadius.circular(8),
+                  color: kosong ? const Color(0xFF45475A) : const Color(0xFF89B4FA),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: const Color(0xFFCBA6F7),
+                    width: 1,
+                  ),
                 ),
-                child: const Text(
-                  'Tap salah satu tombol untuk ubah nama & harga.\n'
-                  'Kosongkan nama & harga = tombol disembunyikan.',
-                  style: TextStyle(fontSize: 12, color: Colors.white70),
-                ),
-              ),
-              const SizedBox(height: 16),
-              GridView.count(
-                crossAxisCount: 2,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                childAspectRatio: 1.8,
-                mainAxisSpacing: 8,
-                crossAxisSpacing: 8,
-                children: List.generate(6, (i) {
-                  final m = menus[i];
-                  final kosong = m.nama.isEmpty || m.harga == 0;
-                  return GestureDetector(
-                    onTap: () => _edit(i),
-                    child: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: kosong
-                            ? const Color(0xFF45475A)
-                            : const Color(0xFF89B4FA),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: const Color(0xFFCBA6F7),
-                          width: 1,
-                        ),
-                      ),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            m.nama.isEmpty ? '(kosong)' : m.nama,
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: kosong ? Colors.white54 : Colors.black,
-                              fontWeight: FontWeight.w600,
-                            ),
-                            textAlign: TextAlign.center,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            m.harga == 0 ? '—' : 'Rp ${rp(m.harga)}',
-                            style: TextStyle(
-                              fontSize: 16,
-                              color: kosong ? Colors.white38 : Colors.black,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Icon(Icons.edit,
-                              size: 12,
-                              color: kosong
-                                  ? Colors.white38
-                                  : Colors.black54),
-                        ],
-                      ),
-                    ),
-                  );
-                }),
-              ),
-              const SizedBox(height: 20),
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFA6E3A1),
-                  padding: const EdgeInsets.all(14),
-                ),
-                onPressed: () => Navigator.pop(context, menus),
-                icon: const Icon(Icons.save, color: Colors.black),
-                label: const Text('SIMPAN MENU',
+                child: ListTile(
+                  onTap: () => _edit(i),
+                  title: Text(
+                    m.nama.isEmpty ? '(kosong - tap untuk isi)' : m.nama,
                     style: TextStyle(
-                        color: Colors.black,
-                        fontWeight: FontWeight.bold)),
+                      color: kosong ? Colors.white54 : Colors.black,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  subtitle: Text(
+                    m.harga == 0 ? '—' : 'Rp ${rp(m.harga)}',
+                    style: TextStyle(
+                      color: kosong ? Colors.white38 : Colors.black87,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.delete, color: Color(0xFFF38BA8)),
+                    onPressed: () => _hapusMenu(i),
+                  ),
+                ),
+              );
+            }),
+            
+            const SizedBox(height: 10),
+            
+            // Tombol Tambah Menu Baru
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFCBA6F7),
+                padding: const EdgeInsets.all(14),
               ),
-            ],
-          ),
+              onPressed: _tambahMenu,
+              icon: const Icon(Icons.add, color: Colors.black),
+              label: const Text('TAMBAH MENU BARU',
+                  style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+            ),
+            
+            const SizedBox(height: 20),
+            
+            // Tombol Simpan
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFA6E3A1),
+                padding: const EdgeInsets.all(16),
+              ),
+              onPressed: () => Navigator.pop(context, menus),
+              icon: const Icon(Icons.save, color: Colors.black),
+              label: const Text('SIMPAN MENU',
+                  style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+            ),
+            const SizedBox(height: 30), // Jarak bawah
+          ],
         ),
       ),
     );
