@@ -42,8 +42,6 @@ String jamStr(DateTime d) =>
 String rp(int n) => n.toString().replaceAllMapped(
     RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (m) => '${m[1]}.');
 
-int nowStamp() => DateTime.now().millisecondsSinceEpoch;
-
 String fmtTglPendek(String tgl) {
   if (tgl.length < 10) return tgl;
   final p = tgl.split('-');
@@ -54,7 +52,7 @@ String fmtTglPendek(String tgl) {
   return '${p[2]} ${bln[int.parse(p[1]) - 1]} ${p[0]}';
 }
 
-Future> apiGet(Map<String, String> params) async {
+Future<Map<String, dynamic>> apiGet(Map<String, String> params) async {
   try {
     final prefs = await SharedPreferences.getInstance();
     final scriptUrl = prefs.getString('scriptUrl') ?? '';
@@ -64,7 +62,7 @@ Future> apiGet(Map<String, String> params) async {
     final uri = Uri.parse(scriptUrl).replace(queryParameters: params);
     final res = await http.get(uri).timeout(const Duration(seconds: 20));
     if (res.statusCode == 200) {
-      final decoded = jsonDecode(res.body);
+      final decoded = jsonDecode(utf8.decode(res.bodyBytes));
       if (decoded is Map<String, dynamic>) return decoded;
       return {'status': 'error', 'message': 'Format response salah'};
     }
@@ -100,11 +98,11 @@ class Transaksi {
       };
 
   factory Transaksi.fromJson(Map<String, dynamic> m) => Transaksi(
-        id: m['id'],
-        tanggal: m['tanggal'],
-        jam: m['jam'],
-        nominal: m['nominal'],
-        metode: m['metode'] ?? 'Tunai',
+        id: (m['id'] as num).toInt(),
+        tanggal: m['tanggal'].toString(),
+        jam: m['jam'].toString(),
+        nominal: (m['nominal'] as num).toInt(),
+        metode: (m['metode'] ?? 'Tunai').toString(),
         synced: m['synced'] ?? false,
       );
 }
@@ -272,7 +270,6 @@ class KasirPage extends StatefulWidget {
 class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
   List<Transaksi> data = [];
   List<int> delIds = [];
-  int nextId = 1;
   bool syncing = false;
   String progress = '';
   bool showOmset = false;
@@ -284,6 +281,7 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
   List<MenuItem> menus = [];
   String filterRiwayat = 'hari';
   DateTime? _customT1, _customT2;
+  bool _syncLock = false;
 
   @override
   void initState() {
@@ -312,9 +310,6 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
       data = (jsonDecode(d) as List)
           .map((e) => Transaksi.fromJson(e as Map<String, dynamic>))
           .toList();
-      for (var t in data) {
-        if (t.id >= nextId) nextId = t.id + 1;
-      }
     }
     final dd = p.getString('kasirDel');
     if (dd != null) {
@@ -333,7 +328,6 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
     await p.setString('kasirDel', jsonEncode(delIds));
   }
 
-  // ========== MENU CUSTOM ==========
   Future<void> _loadMenus() async {
     final p = await SharedPreferences.getInstance();
     final s = p.getString('menus');
@@ -379,7 +373,6 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
     }
   }
 
-  // ========== PENGATURAN URL SCRIPT ==========
   Future<void> _openUrlSettings() async {
     final p = await SharedPreferences.getInstance();
     final currentUrl = p.getString('scriptUrl') ?? '';
@@ -393,7 +386,6 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
           controller: urlC,
           decoration: const InputDecoration(
             labelText: 'URL Apps Script',
-            hintText: 'https://script.google.com/...',
             border: OutlineInputBorder(),
           ),
         ),
@@ -419,29 +411,57 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
     }
   }
 
-  // ========== CETAK STRUK BLUETOOTH THERMAL 58mm ==========
-  Future<void> _cetakStruk(Transaksi t) async {
-    await [
+  Future<bool> _mintaIzinPrinter() async {
+    final statuses = await [
       Permission.bluetooth,
       Permission.bluetoothConnect,
       Permission.bluetoothScan,
+      Permission.locationWhenInUse,
     ].request();
+
+    final semuaDiizinkan = statuses.values.every(
+      (s) => s.isGranted || s.isLimited || s.isRestricted,
+    );
+
+    if (!semuaDiizinkan) {
+      final permanent = statuses.values.any((s) => s.isPermanentlyDenied);
+      if (permanent) {
+        _snack(
+            'Izin Bluetooth ditolak permanen. Buka Pengaturan aplikasi.',
+            err: true);
+        await openAppSettings();
+      } else {
+        _snack('Izin Bluetooth diperlukan untuk mencetak', err: true);
+      }
+      return false;
+    }
+    return true;
+  }
+
+  Future<void> _cetakStruk(Transaksi t) async {
+    final izin = await _mintaIzinPrinter();
+    if (!izin) return;
 
     final perangkat = await Navigator.push<BluetoothInfo>(
       context,
       MaterialPageRoute(builder: (_) => const PrinterScanPage()),
     );
 
-    if (perangkat == null) return;
+    if (perangkat == null) {
+      _snack('Cetak dibatalkan');
+      return;
+    }
 
     try {
-      bool konek = await PrintBluetoothThermal.connect(macPrinterAddress: perangkat.macAdress);
+      bool konek = await PrintBluetoothThermal.connect(
+          macPrinterAddress: perangkat.macAdress);
       if (!konek) {
         _snack('Gagal terhubung ke printer', err: true);
         return;
       }
 
-      bool cetakData = await PrintBluetoothThermal.writeBytes(_formatStruk(t, tabKasir));
+      bool cetakData = await PrintBluetoothThermal.writeBytes(
+          _formatStruk(t, tabKasir));
       if (cetakData) {
         _snack('✓ Struk berhasil dicetak', ok: true);
       } else {
@@ -455,21 +475,21 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
 
   List<int> _formatStruk(Transaksi t, String kasir) {
     List<int> bytes = [];
-    bytes += [0x1B, 0x40]; 
-    bytes += [0x1B, 0x61, 0x01]; 
-    bytes += utf8.encode("$APP_HEADER\n");
-    bytes += utf8.encode("Kasir: $kasir\n");
-    bytes += utf8.encode("--------------------------------\n");
-    bytes += [0x1B, 0x61, 0x00]; 
-    bytes += utf8.encode("Tanggal : ${t.tanggal} ${t.jam}\n");
-    bytes += utf8.encode("No. Trx  : #${t.id}\n");
-    bytes += utf8.encode("Metode  : ${t.metode}\n");
-    bytes += utf8.encode("--------------------------------\n");
-    bytes += [0x1B, 0x61, 0x02]; 
-    bytes += utf8.encode("TOTAL: Rp ${rp(t.nominal)}\n");
-    bytes += [0x1B, 0x61, 0x01]; 
-    bytes += utf8.encode("--------------------------------\n");
-    bytes += utf8.encode("Terima Kasih Atas Kunjungan Anda!\n\n\n");
+    bytes += [0x1B, 0x40];
+    bytes += [0x1B, 0x61, 0x01];
+    bytes += latin1.encode("$APP_HEADER\n");
+    bytes += latin1.encode("Kasir: $kasir\n");
+    bytes += latin1.encode("--------------------------------\n");
+    bytes += [0x1B, 0x61, 0x00];
+    bytes += latin1.encode("Tanggal : ${t.tanggal} ${t.jam}\n");
+    bytes += latin1.encode("No. Trx  : #${t.id}\n");
+    bytes += latin1.encode("Metode   : ${t.metode}\n");
+    bytes += latin1.encode("--------------------------------\n");
+    bytes += [0x1B, 0x61, 0x02];
+    bytes += latin1.encode("TOTAL: Rp ${rp(t.nominal)}\n");
+    bytes += [0x1B, 0x61, 0x01];
+    bytes += latin1.encode("--------------------------------\n");
+    bytes += latin1.encode("Terima Kasih Atas Kunjungan Anda!\n\n\n");
     return bytes;
   }
 
@@ -487,8 +507,9 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
     });
     if (!mounted) return;
     if (r['status'] == 'ok') {
-      final idsSheets =
-          (r['ids'] as List).map((e) => (e['id'] as num).toInt()).toSet();
+      final idsSheets = (r['ids'] as List)
+          .map((e) => (e['id'] as num).toInt())
+          .toSet();
       final idsHp = data.map((t) => t.id).toSet();
       final hantu = idsSheets.where((id) => !idsHp.contains(id)).toList();
       setState(() {
@@ -576,7 +597,7 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
     }
   }
 
-  int get _totalHarini => _riwayat().fold(0, (s, t) => s + t.nominal);
+  int get _totalPeriode => _riwayat().fold(0, (s, t) => s + t.nominal);
   int get _totalTunai => _riwayat()
       .where((t) => t.metode == 'Tunai')
       .fold(0, (s, t) => s + t.nominal);
@@ -584,7 +605,7 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
       .where((t) => t.metode == 'QRIS')
       .fold(0, (s, t) => s + t.nominal);
 
-  Future> _upsert(Transaksi t) async => apiGet({
+  Future<Map<String, dynamic>> _upsert(Transaksi t) async => apiGet({
         'action': 'upsert',
         'tab': tabKasir,
         'id': t.id.toString(),
@@ -594,91 +615,98 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
         'metode': t.metode,
       });
 
-  Future> _delete(int id) async =>
+  Future<Map<String, dynamic>> _delete(int id) async =>
       apiGet({'action': 'delete', 'tab': tabKasir, 'id': id.toString()});
 
   Future<void> _cobaSync(Transaksi t) async {
-    final r = await _upsert(t);
-    if (r['status'] == 'ok') {
-      setState(() => t.synced = true);
-      await _save();
-    }
+    await _sync(silent: true, retry: false);
   }
 
   Future<void> _sync({bool silent = false, bool retry = true}) async {
-    if (syncing) return;
-    int attempt = 0;
-    while (true) {
-      attempt++;
-      final pt = data.where((t) => !t.synced).toList();
-      final pd = List<int>.from(delIds);
-      if (pt.isEmpty && pd.isEmpty) {
-        if (mounted && !silent && attempt == 1) {
-          _snack('Semua data sudah tersinkron');
+    if (_syncLock) return;
+    _syncLock = true;
+    try {
+      int attempt = 0;
+      while (true) {
+        attempt++;
+        final pt = data.where((t) => !t.synced).toList();
+        final pd = List<int>.from(delIds);
+        if (pt.isEmpty && pd.isEmpty) {
+          if (mounted && !silent && attempt == 1) {
+            _snack('Semua data sudah tersinkron');
+          }
+          return;
         }
-        return;
-      }
-      setState(() {
-        syncing = true;
-        progress = 'Memulai...';
-      });
-      int ke = 0;
-      final total = pt.length + pd.length;
-      int gagal = 0;
-      String err = '';
-      final sisa = <int>[];
+        setState(() {
+          syncing = true;
+          progress = 'Memulai...';
+        });
+        int ke = 0;
+        final total = pt.length + pd.length;
+        int gagal = 0;
+        String err = '';
+        final sisa = <int>[];
 
-      for (final id in pd) {
-        ke++;
-        if (mounted) setState(() => progress = 'Hapus $ke/$total');
-        final r = await _delete(id);
-        if (r['status'] != 'ok') {
-          sisa.add(id);
-          gagal++;
-          if (err.isEmpty) err = r['message'] ?? '?';
+        for (final id in pd) {
+          ke++;
+          if (mounted) setState(() => progress = 'Hapus $ke/$total');
+          final r = await _delete(id);
+          if (r['status'] != 'ok') {
+            sisa.add(id);
+            gagal++;
+            if (err.isEmpty) err = r['message'] ?? '?';
+          }
+          await Future.delayed(const Duration(milliseconds: 80));
         }
-        await Future.delayed(const Duration(milliseconds: 80));
-      }
 
-      for (final t in pt) {
-        ke++;
-        if (mounted) setState(() => progress = 'Kirim $ke/$total');
-        final r = await _upsert(t);
-        if (r['status'] == 'ok') {
-          t.synced = true;
-        } else {
-          gagal++;
-          if (err.isEmpty) err = r['message'] ?? '?';
+        for (final t in pt) {
+          ke++;
+          if (mounted) setState(() => progress = 'Kirim $ke/$total');
+          final r = await _upsert(t);
+          if (r['status'] == 'ok') {
+            t.synced = true;
+          } else {
+            gagal++;
+            if (err.isEmpty) err = r['message'] ?? '?';
+          }
+          await Future.delayed(const Duration(milliseconds: 80));
         }
-        await Future.delayed(const Duration(milliseconds: 80));
-      }
 
-      delIds = sisa;
-      await _save();
+        delIds = sisa;
+        await _save();
 
-      if (gagal == 0) {
-        if (mounted) {
-          setState(() {
-            syncing = false;
-            progress = '';
-          });
+        if (gagal == 0) {
+          if (mounted) {
+            setState(() {
+              syncing = false;
+              progress = '';
+            });
+          }
+          if (!silent) _snack('✓ Sync berhasil', ok: true);
+          _cekHantu();
+          return;
         }
-        if (!silent) _snack('✓ Sync berhasil', ok: true);
-        _cekHantu();
-        return;
-      }
-      if (!retry || attempt >= 5) {
-        if (mounted) {
-          setState(() {
-            syncing = false;
-            progress = '';
-          });
+        if (!retry || attempt >= 5) {
+          if (mounted) {
+            setState(() {
+              syncing = false;
+              progress = '';
+            });
+          }
+          _snack('Gagal setelah $attempt percobaan: $err', err: true);
+          return;
         }
-        _snack('Gagal setelah $attempt percobaan: $err', err: true);
-        return;
+        if (mounted) setState(() => progress = 'Retry 3 dtk...');
+        await Future.delayed(const Duration(seconds: 3));
       }
-      if (mounted) setState(() => progress = 'Retry 3 dtk...');
-      await Future.delayed(const Duration(seconds: 3));
+    } finally {
+      _syncLock = false;
+      if (mounted && syncing) {
+        setState(() {
+          syncing = false;
+          progress = '';
+        });
+      }
     }
   }
 
@@ -695,9 +723,8 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
     ));
   }
 
-  // ========== TARIK & GABUNG ==========
   Future<void> _tarikDanGabung() async {
-    if (syncing) return;
+    if (_syncLock) return;
     setState(() {
       syncing = true;
       progress = 'Ambil dari Sheets...';
@@ -719,7 +746,7 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
       return;
     }
 
-    final listSheets = (r['data'] as List).cast>();
+    final listSheets = (r['data'] as List).cast<Map<String, dynamic>>();
     final idsHp = data.map((t) => t.id).toSet();
     int ditambah = 0;
     int dilewati = 0;
@@ -764,11 +791,6 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
               const SizedBox(height: 8),
               Text('• Ditambahkan: $ditambah'),
               Text('• Dilewati (sudah ada): $dilewati'),
-              const SizedBox(height: 12),
-              const Text(
-                'Google Sheets tidak diubah.',
-                style: TextStyle(fontSize: 11, color: Colors.white54),
-              ),
             ],
           ),
         ),
@@ -780,7 +802,6 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
     );
   }
 
-  // ========== INPUT MENU (nama produk + harga) ==========
   Future<void> _inputMenu(MenuItem m) async {
     final n = m.harga;
     final h = await showDialog<String>(
@@ -814,7 +835,7 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
     if (h == 'Tunai' || h == 'QRIS') {
       final now = DateTime.now();
       final b = Transaksi(
-        id: nowStamp(),
+        id: now.microsecondsSinceEpoch,
         tanggal: tglStr(now),
         jam: jamStr(now),
         nominal: n,
@@ -832,18 +853,21 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
       context: context,
       builder: (c) => AlertDialog(
         title: const Text('Cetak Struk?'),
-        content: Text('Transaksi senilai Rp ${rp(t.nominal)} berhasil disimpan.'),
+        content:
+            Text('Transaksi Rp ${rp(t.nominal)} berhasil disimpan.'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(c),
               child: const Text('TIDAK')),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFA6E3A1)),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFA6E3A1)),
             onPressed: () {
               Navigator.pop(c);
               _cetakStruk(t);
             },
-            child: const Text('CETAK', style: TextStyle(color: Colors.black)),
+            child:
+                const Text('CETAK', style: TextStyle(color: Colors.black)),
           ),
         ],
       ),
@@ -987,7 +1011,7 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
     if (ok != true) return;
     setState(() {
       data.removeWhere((x) => x.id == t.id);
-      delIds.add(t.id);
+      if (t.synced) delIds.add(t.id);
     });
     await _save();
     _sync(silent: true, retry: true);
@@ -1003,9 +1027,6 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
           ? DateTimeRange(start: _customT1!, end: _customT2!)
           : DateTimeRange(
               start: now.subtract(const Duration(days: 7)), end: now),
-      helpText: 'PILIH RENTANG RIWAYAT',
-      saveText: 'PILIH',
-      cancelText: 'BATAL',
       builder: (c, ch) => Theme(
         data: ThemeData.dark().copyWith(
           colorScheme: const ColorScheme.dark(
@@ -1107,12 +1128,23 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
     b.writeln('\nTotal,,,$tot,\nTunai,,,$totT,\nQRIS,,,$totQ');
 
     final dir = await getTemporaryDirectory();
-    final nama = (t1.isNotEmpty && t1 == t2)
-        ? 'laporan_$t1.csv'
-        : 'laporan_${t1}_sd_$t2.csv';
+    final String nama;
+    if (t1.isNotEmpty) {
+      nama = (t1 == t2) ? 'laporan_$t1.csv' : 'laporan_${t1}_sd_$t2.csv';
+    } else {
+      final lbl = _labelFilterAktif.replaceAll(' ', '_').toLowerCase();
+      nama = 'laporan_$lbl.csv';
+    }
     final file = File('${dir.path}/$nama');
     await file.writeAsString(b.toString());
-    await Share.shareXFiles([XFile(file.path)], text: 'Laporan $tabKasir');
+
+    final box = context.findRenderObject() as RenderBox?;
+    await Share.shareXFiles(
+      [XFile(file.path)],
+      text: 'Laporan $tabKasir',
+      sharePositionOrigin:
+          box != null ? box.localToGlobal(Offset.zero) & box.size : null,
+    );
   }
 
   Future<void> _bukaLihatSheet() async {
@@ -1153,12 +1185,9 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
               ),
               const SizedBox(height: 8),
               GestureDetector(
-                onLongPressStart: (_) =>
-                    setState(() => showOmset = true),
-                onLongPressEnd: (_) =>
-                    setState(() => showOmset = false),
-                onLongPressCancel: () =>
-                    setState(() => showOmset = false),
+                onLongPressStart: (_) => setState(() => showOmset = true),
+                onLongPressEnd: (_) => setState(() => showOmset = false),
+                onLongPressCancel: () => setState(() => showOmset = false),
                 child: Container(
                   padding: const EdgeInsets.symmetric(
                       horizontal: 16, vertical: 10),
@@ -1168,7 +1197,7 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
                   ),
                   child: showOmset
                       ? Column(children: [
-                          Text('$_labelOmset: Rp ${rp(_totalHarini)}',
+                          Text('$_labelOmset: Rp ${rp(_totalPeriode)}',
                               style: const TextStyle(
                                   fontSize: 20,
                                   color: Color(0xFFA6E3A1))),
@@ -1291,7 +1320,7 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
                   const SizedBox(width: 4),
                   GestureDetector(
                     onTap: () {
-                      if (!syncing) _tarikDanGabung();
+                      if (!_syncLock) _tarikDanGabung();
                     },
                     child: Container(
                       padding: const EdgeInsets.all(6),
@@ -1300,9 +1329,7 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
                         borderRadius: BorderRadius.circular(24),
                       ),
                       child: Icon(
-                        syncing
-                            ? Icons.downloading
-                            : Icons.cloud_download,
+                        syncing ? Icons.downloading : Icons.cloud_download,
                         size: 28,
                         color: _syncColor,
                       ),
@@ -1330,8 +1357,7 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
                         backgroundColor: const Color(0xFFF9E2AF),
                         padding: const EdgeInsets.all(10),
                       ),
-                      onPressed:
-                          syncing ? null : () => _sync(retry: true),
+                      onPressed: syncing ? null : () => _sync(retry: true),
                       icon: syncing
                           ? const SizedBox(
                               width: 18,
@@ -1352,8 +1378,6 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
                   ),
                 ),
               const SizedBox(height: 16),
-
-              // ============ GRID MENU ============
               if (menuAktif.isEmpty)
                 Container(
                   padding: const EdgeInsets.all(20),
@@ -1411,7 +1435,6 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
                           ))
                       .toList(),
                 ),
-
               const SizedBox(height: 20),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1442,9 +1465,7 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
                       ),
                       child: Row(children: [
                         Icon(
-                          e.value.synced
-                              ? Icons.cloud_done
-                              : Icons.cloud_off,
+                          e.value.synced ? Icons.cloud_done : Icons.cloud_off,
                           color: e.value.synced
                               ? const Color(0xFFA6E3A1)
                               : const Color(0xFFF9E2AF),
@@ -1481,7 +1502,6 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
                         IconButton(
                           icon: const Icon(Icons.print,
                               color: Color(0xFFA6E3A1), size: 20),
-                          tooltip: 'Cetak Struk',
                           onPressed: () => _cetakStruk(e.value),
                         ),
                         IconButton(
@@ -1555,7 +1575,8 @@ class _PrinterScanPageState extends State<PrinterScanPage> {
   Future<void> _scanPrinter() async {
     setState(() => scanning = true);
     try {
-      List<BluetoothInfo> list = await PrintBluetoothThermal.pairedBluetooths;
+      List<BluetoothInfo> list =
+          await PrintBluetoothThermal.pairedBluetooths;
       setState(() {
         perangkatList = list;
         scanning = false;
@@ -1582,7 +1603,8 @@ class _PrinterScanPageState extends State<PrinterScanPage> {
           ? const Center(child: CircularProgressIndicator())
           : perangkatList.isEmpty
               ? const Center(
-                  child: Text('Tidak ada printer bluetooth ter-pairing.\nSilakan sambungkan lewat pengaturan Bluetooth HP.',
+                  child: Text(
+                      'Tidak ada printer bluetooth ter-pairing.\nSilakan sambungkan lewat pengaturan Bluetooth HP.',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Colors.grey)),
                 )
@@ -1591,9 +1613,12 @@ class _PrinterScanPageState extends State<PrinterScanPage> {
                   itemBuilder: (context, index) {
                     final p = perangkatList[index];
                     return ListTile(
-                      leading: const Icon(Icons.print, color: Color(0xFF89B4FA)),
-                      title: Text(p.name, style: const TextStyle(color: Colors.white)),
-                      subtitle: Text(p.macAdress, style: const TextStyle(color: Colors.white54)),
+                      leading:
+                          const Icon(Icons.print, color: Color(0xFF89B4FA)),
+                      title: Text(p.name,
+                          style: const TextStyle(color: Colors.white)),
+                      subtitle: Text(p.macAdress,
+                          style: const TextStyle(color: Colors.white54)),
                       onTap: () => Navigator.pop(context, p),
                     );
                   },
@@ -1674,10 +1699,7 @@ class _MenuSettingsPageState extends State<MenuSettingsPage> {
     if (ok == true) {
       final harga = int.tryParse(hargaC.text) ?? 0;
       setState(() {
-        menus[index] = MenuItem(
-          nama: namaC.text.trim(),
-          harga: harga,
-        );
+        menus[index] = MenuItem(nama: namaC.text.trim(), harga: harga);
       });
     }
   }
@@ -1891,9 +1913,6 @@ class _LaporanPageState extends State<LaporanPage> {
           ? DateTimeRange(start: t1!, end: t2!)
           : DateTimeRange(
               start: now.subtract(const Duration(days: 7)), end: now),
-      helpText: 'PILIH RENTANG',
-      saveText: 'PILIH',
-      cancelText: 'BATAL',
       builder: (c, ch) => Theme(
         data: ThemeData.dark().copyWith(
           colorScheme: const ColorScheme.dark(
@@ -2138,7 +2157,7 @@ class LihatSheetPage extends StatefulWidget {
 class _LihatSheetPageState extends State<LihatSheetPage> {
   bool loading = true;
   String? error;
-  Map<String, List>> dataPerTab = {};
+  Map<String, List<Map<String, dynamic>>> dataPerTab = {};
   List<String> urutanTab = [];
   Set<String> expandedTabs = {};
 
@@ -2171,7 +2190,7 @@ class _LihatSheetPageState extends State<LihatSheetPage> {
       });
       return;
     }
-    final list = (r['data'] as List).cast>();
+    final list = (r['data'] as List).cast<Map<String, dynamic>>();
     setState(() {
       loading = false;
       urutanTab = [tab];
@@ -2263,9 +2282,9 @@ class _LihatSheetPageState extends State<LihatSheetPage> {
     );
   }
 
-  Widget _buildTabCard(String tab, List> dataTab) {
-    final total = dataTab.fold<int>(
-        0, (s, t) => s + ((t['nominal'] ?? 0) as int));
+  Widget _buildTabCard(String tab, List<Map<String, dynamic>> dataTab) {
+    final total =
+        dataTab.fold<int>(0, (s, t) => s + ((t['nominal'] ?? 0) as int));
     final isKosong = dataTab.isEmpty;
     final isExpanded = expandedTabs.contains(tab);
     final showData = isExpanded ? dataTab : dataTab.take(10).toList();
@@ -2284,12 +2303,10 @@ class _LihatSheetPageState extends State<LihatSheetPage> {
             padding: const EdgeInsets.all(12),
             decoration: const BoxDecoration(
               color: Color(0xFF45475A),
-              borderRadius:
-                  BorderRadius.vertical(top: Radius.circular(12)),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
             ),
             child: Row(children: [
-              const Icon(Icons.store,
-                  color: Color(0xFF89B4FA), size: 20),
+              const Icon(Icons.store, color: Color(0xFF89B4FA), size: 20),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(tab,
@@ -2302,20 +2319,17 @@ class _LihatSheetPageState extends State<LihatSheetPage> {
                 isKosong ? 'Kosong' : '${dataTab.length} data',
                 style: TextStyle(
                     fontSize: 12,
-                    color:
-                        isKosong ? Colors.white38 : Colors.white70),
+                    color: isKosong ? Colors.white38 : Colors.white70),
               ),
             ]),
           ),
           Padding(
-            padding: const EdgeInsets.symmetric(
-                horizontal: 12, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 const Text('Total nominal:',
-                    style: TextStyle(
-                        fontSize: 12, color: Colors.white70)),
+                    style: TextStyle(fontSize: 12, color: Colors.white70)),
                 Text('Rp ${rp(total)}',
                     style: TextStyle(
                       fontSize: 13,
@@ -2354,8 +2368,7 @@ class _LihatSheetPageState extends State<LihatSheetPage> {
                         Expanded(
                           child: Text('$tgl $jam',
                               style: const TextStyle(
-                                  fontSize: 11,
-                                  color: Colors.white70)),
+                                  fontSize: 11, color: Colors.white70)),
                         ),
                         Text('Rp ${rp(nom)}',
                             style: const TextStyle(
@@ -2397,12 +2410,10 @@ class _LihatSheetPageState extends State<LihatSheetPage> {
               ),
               onPressed: isKosong ? null : () => _hapusRentang(tab, dataTab),
               icon: Icon(Icons.delete_sweep,
-                  color:
-                      isKosong ? Colors.white38 : Colors.black),
+                  color: isKosong ? Colors.white38 : Colors.black),
               label: Text('HAPUS RENTANG TAB INI',
                   style: TextStyle(
-                      color:
-                          isKosong ? Colors.white38 : Colors.black,
+                      color: isKosong ? Colors.white38 : Colors.black,
                       fontWeight: FontWeight.bold,
                       fontSize: 12)),
             ),
@@ -2413,7 +2424,7 @@ class _LihatSheetPageState extends State<LihatSheetPage> {
   }
 
   Future<void> _hapusRentang(
-      String tab, List> dataTab) async {
+      String tab, List<Map<String, dynamic>> dataTab) async {
     if (dataTab.isEmpty) {
       _snack('Tidak ada data di tab ini');
       return;
@@ -2427,9 +2438,6 @@ class _LihatSheetPageState extends State<LihatSheetPage> {
         start: now.subtract(const Duration(days: 7)),
         end: now,
       ),
-      helpText: 'PILIH RENTANG HAPUS',
-      saveText: 'PILIH',
-      cancelText: 'BATAL',
       builder: (c, ch) => Theme(
         data: ThemeData.dark().copyWith(
           colorScheme: const ColorScheme.dark(
@@ -2450,8 +2458,8 @@ class _LihatSheetPageState extends State<LihatSheetPage> {
       final tgl = (t['tanggal'] ?? '').toString();
       return tgl.compareTo(tgl1) >= 0 && tgl.compareTo(tgl2) <= 0;
     }).toList();
-    final totalNominal = akanHapus.fold<int>(
-        0, (s, t) => s + ((t['nominal'] ?? 0) as int));
+    final totalNominal =
+        akanHapus.fold<int>(0, (s, t) => s + ((t['nominal'] ?? 0) as int));
 
     if (akanHapus.isEmpty) {
       _snack('Tidak ada data di rentang ini');
@@ -2480,11 +2488,6 @@ class _LihatSheetPageState extends State<LihatSheetPage> {
                   style: const TextStyle(
                       color: Color(0xFFF38BA8),
                       fontWeight: FontWeight.bold)),
-              const SizedBox(height: 12),
-              const Text(
-                  'Data akan dihapus dari Sheets. HP tidak berubah.',
-                  style:
-                      TextStyle(fontSize: 11, color: Colors.white54)),
             ],
           ),
         ),
@@ -2498,8 +2501,7 @@ class _LihatSheetPageState extends State<LihatSheetPage> {
             onPressed: () => Navigator.pop(c, true),
             child: const Text('HAPUS',
                 style: TextStyle(
-                    color: Colors.black,
-                    fontWeight: FontWeight.bold)),
+                    color: Colors.black, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
