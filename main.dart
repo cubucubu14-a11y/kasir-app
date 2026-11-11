@@ -467,7 +467,7 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
       } else {
         _snack('Gagal mencetak struk', err: true);
       }
-      await PrintBluetoothThermal.disconnect();
+      try { PrintBluetoothThermal.disconnect(); } catch (_) {}
     } catch (e) {
       _snack('Error printer: $e', err: true);
     }
