@@ -13,6 +13,8 @@ dependencies:
   share_plus: 7.2.1
   path_provider: 2.1.2
   http: 1.2.0
+  print_bluetooth_thermal: ^1.0.8
+  permission_handler: ^11.3.1
 
 flutter:
   uses-material-design: true
