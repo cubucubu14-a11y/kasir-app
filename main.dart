@@ -1,9 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:share_plus/share_plus.dart';
 import 'dart:convert';
-import 'dart:io';
-import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
 import 'package:print_bluetooth_thermal/print_bluetooth_thermal.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -275,6 +272,7 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
   bool showOmset = false;
   String tabKasir = '';
   String namaKasir = '';
+  String namaCabang = '';
   bool _adaHantu = false;
   bool _sedangCek = false;
   bool _offline = false;
@@ -282,6 +280,10 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
   String filterRiwayat = 'hari';
   DateTime? _customT1, _customT2;
   bool _syncLock = false;
+
+  // Variabel untuk Bottom Navigation & Keranjang
+  int _currentIndex = 0;
+  List<MenuItem> keranjang = [];
 
   @override
   void initState() {
@@ -305,6 +307,7 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
     final p = await SharedPreferences.getInstance();
     tabKasir = p.getString('tabKasir') ?? '';
     namaKasir = p.getString('namaKasir') ?? '';
+    namaCabang = p.getString('namaCabang') ?? '';
     final d = p.getString('transaksi');
     if (d != null) {
       data = (jsonDecode(d) as List)
@@ -342,7 +345,6 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
     } else {
       menus = _defaultMenus();
     }
-    // Tidak ada batasan 6 menu lagi, minimal 1 menu jika kosong
     if (menus.isEmpty) {
       menus.add(MenuItem(nama: '', harga: 0));
     }
@@ -469,7 +471,7 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
         _snack('Gagal mencetak struk', err: true);
       }
       
-      // PERBAIKAN DISCONNECT: pakai Future.microtask tanpa kurung kurawal
+      // PERBAIKAN DISCONNECT
       Future.microtask(() => PrintBluetoothThermal.disconnect);
       
     } catch (e) {
@@ -483,6 +485,9 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
     bytes += [0x1B, 0x61, 0x01];
     bytes += latin1.encode("$APP_HEADER\n");
     bytes += latin1.encode("Kasir: $kasir\n");
+    if (namaCabang.isNotEmpty) {
+      bytes += latin1.encode("Cabang: $namaCabang\n");
+    }
     bytes += latin1.encode("--------------------------------\n");
     bytes += [0x1B, 0x61, 0x00];
     bytes += latin1.encode("Tanggal : ${t.tanggal} ${t.jam}\n");
@@ -528,13 +533,6 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
     }
   }
 
-  Color get _syncColor {
-    if (_sedangCek || syncing) return const Color(0xFF89B4FA);
-    if (_offline) return Colors.grey;
-    if (_adaHantu) return const Color(0xFFF9E2AF);
-    return const Color(0xFFCBA6F7);
-  }
-
   int get belumSync => data.where((t) => !t.synced).length + delIds.length;
 
   List<Transaksi> _riwayat() {
@@ -569,22 +567,6 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
         .toList();
   }
 
-  String get _labelOmset {
-    switch (filterRiwayat) {
-      case 'kemarin':
-        return 'Total kemarin';
-      case 'kemarin2':
-        return 'Total 2 hari lalu';
-      case 'custom':
-        if (_customT1 != null && _customT2 != null) {
-          return 'Total ${fmtTglPendek(tglStr(_customT1!))} - ${fmtTglPendek(tglStr(_customT2!))}';
-        }
-        return 'Total periode';
-      default:
-        return 'Total hari ini';
-    }
-  }
-
   String get _labelFilterAktif {
     switch (filterRiwayat) {
       case 'kemarin':
@@ -602,12 +584,6 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
   }
 
   int get _totalPeriode => _riwayat().fold(0, (s, t) => s + t.nominal);
-  int get _totalTunai => _riwayat()
-      .where((t) => t.metode == 'Tunai')
-      .fold(0, (s, t) => s + t.nominal);
-  int get _totalQris => _riwayat()
-      .where((t) => t.metode == 'QRIS')
-      .fold(0, (s, t) => s + t.nominal);
 
   Future<Map<String, dynamic>> _upsert(Transaksi t) async => apiGet({
         'action': 'upsert',
@@ -806,46 +782,45 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
     );
   }
 
-  Future<void> _inputMenu(MenuItem m) async {
-    final n = m.harga;
+  Future<void> _prosesPembayaran() async {
+    final total = keranjang.fold(0, (s, t) => s + t.harga);
+    
     final h = await showDialog<String>(
       context: context,
       builder: (c) => AlertDialog(
-        title: const Text('Konfirmasi'),
-        content: Text('${m.nama}\nRp ${rp(n)}\n\nSimpan transaksi ini?'),
+        title: const Text('Pilih Pembayaran'),
+        content: Text('Total Belanja: Rp ${rp(total)}'),
         actions: [
           ElevatedButton(
-            style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFA6E3A1)),
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFA6E3A1)),
             onPressed: () => Navigator.pop(c, 'Tunai'),
-            child: const Text('TUNAI',
-                style: TextStyle(
-                    color: Colors.black, fontWeight: FontWeight.bold)),
+            child: const Text('TUNAI', style: TextStyle(color: Colors.black)),
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF89B4FA)),
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF89B4FA)),
             onPressed: () => Navigator.pop(c, 'QRIS'),
-            child: const Text('QRIS',
-                style: TextStyle(
-                    color: Colors.black, fontWeight: FontWeight.bold)),
+            child: const Text('QRIS', style: TextStyle(color: Colors.black)),
           ),
-          TextButton(
-              onPressed: () => Navigator.pop(c, 'cancel'),
-              child: const Text('BATAL')),
+          TextButton(onPressed: () => Navigator.pop(c), child: const Text('BATAL')),
         ],
       ),
     );
+
     if (h == 'Tunai' || h == 'QRIS') {
       final now = DateTime.now();
       final b = Transaksi(
         id: now.microsecondsSinceEpoch,
         tanggal: tglStr(now),
         jam: jamStr(now),
-        nominal: n,
+        nominal: total,
         metode: h!,
       );
-      setState(() => data.add(b));
+      
+      setState(() {
+        data.add(b);
+        keranjang.clear();
+      });
+      
       await _save();
       _cobaSync(b);
       _tanyaCetak(b);
@@ -857,8 +832,7 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
       context: context,
       builder: (c) => AlertDialog(
         title: const Text('Cetak Struk?'),
-        content:
-            Text('Transaksi Rp ${rp(t.nominal)} berhasil disimpan.'),
+        content: Text('Transaksi Rp ${rp(t.nominal)} berhasil disimpan.'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(c),
@@ -870,126 +844,11 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
               Navigator.pop(c);
               _cetakStruk(t);
             },
-            child:
-                const Text('CETAK', style: TextStyle(color: Colors.black)),
+            child: const Text('CETAK', style: TextStyle(color: Colors.black)),
           ),
         ],
       ),
     );
-  }
-
-  Future<void> _edit(Transaksi t) async {
-    final c = TextEditingController(text: t.nominal.toString());
-    String met = t.metode;
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setL) => AlertDialog(
-          title: const Text('Edit Transaksi'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: c,
-                  keyboardType: TextInputType.number,
-                  decoration:
-                      const InputDecoration(labelText: 'Nominal baru'),
-                ),
-                const SizedBox(height: 12),
-                Row(children: [
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () => setL(() => met = 'Tunai'),
-                      child: Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: met == 'Tunai'
-                              ? const Color(0xFFA6E3A1)
-                              : const Color(0xFF45475A),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.payments,
-                                size: 16,
-                                color: met == 'Tunai'
-                                    ? Colors.black
-                                    : Colors.white),
-                            const SizedBox(width: 4),
-                            Text('Tunai',
-                                style: TextStyle(
-                                    color: met == 'Tunai'
-                                        ? Colors.black
-                                        : Colors.white)),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () => setL(() => met = 'QRIS'),
-                      child: Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: met == 'QRIS'
-                              ? const Color(0xFF89B4FA)
-                              : const Color(0xFF45475A),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.qr_code,
-                                size: 16,
-                                color: met == 'QRIS'
-                                    ? Colors.black
-                                    : Colors.white),
-                            const SizedBox(width: 4),
-                            Text('QRIS',
-                                style: TextStyle(
-                                    color: met == 'QRIS'
-                                        ? Colors.black
-                                        : Colors.white)),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ]),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('BATAL')),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFA6E3A1)),
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('SIMPAN',
-                  style: TextStyle(color: Colors.black)),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (ok == true) {
-      final v = int.tryParse(c.text);
-      if (v != null && v > 0) {
-        setState(() {
-          t.nominal = v;
-          t.metode = met;
-          t.synced = false;
-        });
-        await _save();
-        _cobaSync(t);
-      }
-    }
   }
 
   Future<void> _hapus(Transaksi t) async {
@@ -1006,8 +865,7 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
             style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFFF38BA8)),
             onPressed: () => Navigator.pop(c, true),
-            child:
-                const Text('HAPUS', style: TextStyle(color: Colors.black)),
+            child: const Text('HAPUS', style: TextStyle(color: Colors.black)),
           ),
         ],
       ),
@@ -1100,57 +958,6 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
     );
   }
 
-  Future<void> _openLaporan() async {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-          builder: (_) => LaporanPage(data: data, nama: tabKasir)),
-    );
-  }
-
-  Future<void> _export() async {
-    final f = _riwayat();
-    if (f.isEmpty) {
-      _snack('Tidak ada data');
-      return;
-    }
-    final t1 = _customT1 != null ? tglStr(_customT1!) : '';
-    final t2 = _customT2 != null ? tglStr(_customT2!) : '';
-
-    final b = StringBuffer('No,Tanggal,Jam,Nominal,Metode\n');
-    for (int i = 0; i < f.length; i++) {
-      b.writeln(
-          '${i + 1},${f[i].tanggal},${f[i].jam},${f[i].nominal},${f[i].metode}');
-    }
-    final tot = f.fold(0, (s, t) => s + t.nominal);
-    final totT = f
-        .where((t) => t.metode == 'Tunai')
-        .fold(0, (s, t) => s + t.nominal);
-    final totQ = f
-        .where((t) => t.metode == 'QRIS')
-        .fold(0, (s, t) => s + t.nominal);
-    b.writeln('\nTotal,,,$tot,\nTunai,,,$totT,\nQRIS,,,$totQ');
-
-    final dir = await getTemporaryDirectory();
-    final String nama;
-    if (t1.isNotEmpty) {
-      nama = (t1 == t2) ? 'laporan_$t1.csv' : 'laporan_${t1}_sd_$t2.csv';
-    } else {
-      final lbl = _labelFilterAktif.replaceAll(' ', '_').toLowerCase();
-      nama = 'laporan_$lbl.csv';
-    }
-    final file = File('${dir.path}/$nama');
-    await file.writeAsString(b.toString());
-
-    final box = context.findRenderObject() as RenderBox?;
-    await Share.shareXFiles(
-      [XFile(file.path)],
-      text: 'Laporan $tabKasir',
-      sharePositionOrigin:
-          box != null ? box.localToGlobal(Offset.zero) & box.size : null,
-    );
-  }
-
   Future<void> _bukaLihatSheet() async {
     if (tabKasir.isEmpty) {
       _snack('Tab kasir belum diset', err: true);
@@ -1159,400 +966,319 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
     await Navigator.push(
       context,
       MaterialPageRoute(
-          builder: (_) =>
-              LihatSheetPage(mode: 'kasir', tabKasir: tabKasir)),
+          builder: (_) => LihatSheetPage(mode: 'kasir', tabKasir: tabKasir)),
     );
     _cekHantu();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final r = _riwayat();
-    final menuAktif =
-        menus.where((m) => m.nama.isNotEmpty && m.harga > 0).toList();
+  // ================== HALAMAN KASIR (TAB 1) ==================
+  Widget _buildHalamanKasir() {
+    final menuAktif = menus.where((m) => m.nama.isNotEmpty && m.harga > 0).toList();
 
-    return Scaffold(
-      body: SafeArea(
-        child: SingleChildScrollView(
+    return Column(
+      children: [
+        // Header Omset
+        Container(
           padding: const EdgeInsets.all(12),
+          width: double.infinity,
+          color: const Color(0xFF313244),
           child: Column(
             children: [
-              SizedBox(
-                width: double.infinity,
-                height: 40,
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(APP_HEADER,
-                      style: const TextStyle(
-                          fontSize: 28, fontWeight: FontWeight.bold)),
-                ),
-              ),
-              const SizedBox(height: 8),
+              Text(APP_HEADER, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
               GestureDetector(
                 onLongPressStart: (_) => setState(() => showOmset = true),
                 onLongPressEnd: (_) => setState(() => showOmset = false),
-                onLongPressCancel: () => setState(() => showOmset = false),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF313244),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: showOmset
-                      ? Column(children: [
-                          Text('$_labelOmset: Rp ${rp(_totalPeriode)}',
-                              style: const TextStyle(
-                                  fontSize: 20,
-                                  color: Color(0xFFA6E3A1))),
-                          const SizedBox(height: 6),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(Icons.payments,
-                                  size: 16, color: Color(0xFFA6E3A1)),
-                              const SizedBox(width: 4),
-                              Text('Rp ${rp(_totalTunai)}',
-                                  style: const TextStyle(
-                                      fontSize: 14,
-                                      color: Color(0xFFA6E3A1))),
-                              const SizedBox(width: 20),
-                              const Icon(Icons.qr_code,
-                                  size: 16, color: Color(0xFF89B4FA)),
-                              const SizedBox(width: 4),
-                              Text('Rp ${rp(_totalQris)}',
-                                  style: const TextStyle(
-                                      fontSize: 14,
-                                      color: Color(0xFF89B4FA))),
-                            ],
-                          ),
-                        ])
-                      : Text('$_labelOmset: ••••••••',
-                          style: const TextStyle(
-                              fontSize: 20, color: Color(0xFFA6E3A1))),
-                ),
-              ),
-              const SizedBox(height: 2),
-              const Text('(tahan untuk lihat omset)',
-                  style: TextStyle(fontSize: 10, color: Colors.white38)),
-              const SizedBox(height: 6),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    belumSync == 0 ? Icons.cloud_done : Icons.cloud_off,
-                    color: _sedangCek
-                        ? const Color(0xFF89B4FA)
-                        : belumSync == 0
-                            ? const Color(0xFFA6E3A1)
-                            : const Color(0xFFF9E2AF),
-                    size: 16,
-                  ),
-                  const SizedBox(width: 4),
-                  Flexible(
-                    child: Text(
-                      syncing && progress.isNotEmpty
-                          ? progress
-                          : belumSync == 0
-                              ? 'Semua tersinkron ke Sheets'
-                              : '$belumSync data belum tersinkron',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: _sedangCek
-                            ? const Color(0xFF89B4FA)
-                            : belumSync == 0
-                                ? const Color(0xFFA6E3A1)
-                                : const Color(0xFFF9E2AF),
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  PopupMenuButton<String>(
-                    icon: const Icon(Icons.more_vert,
-                        color: Colors.white70, size: 20),
-                    onSelected: (v) {
-                      if (v == 'lihat') {
-                        _bukaLihatSheet();
-                      } else if (v == 'filter') {
-                        _bukaLihatSubmenuFilter();
-                      } else if (v == 'aturmenu') {
-                        _openMenuSettings();
-                      } else if (v == 'atururl') {
-                        _openUrlSettings();
-                      }
-                    },
-                    itemBuilder: (c) => const [
-                      PopupMenuItem(
-                        value: 'aturmenu',
-                        child: Row(children: [
-                          Icon(Icons.tune,
-                              color: Color(0xFFCBA6F7), size: 18),
-                          SizedBox(width: 8),
-                          Text('Atur Menu'),
-                        ]),
-                      ),
-                      PopupMenuItem(
-                        value: 'atururl',
-                        child: Row(children: [
-                          Icon(Icons.link,
-                              color: Color(0xFF89B4FA), size: 18),
-                          SizedBox(width: 8),
-                          Text('Atur URL Script'),
-                        ]),
-                      ),
-                      PopupMenuItem(
-                        value: 'filter',
-                        child: Row(children: [
-                          Icon(Icons.filter_list,
-                              color: Color(0xFFF9E2AF), size: 18),
-                          SizedBox(width: 8),
-                          Text('Riwayat Penjualan'),
-                        ]),
-                      ),
-                      PopupMenuItem(
-                        value: 'lihat',
-                        child: Row(children: [
-                          Icon(Icons.table_chart,
-                              color: Color(0xFFA6E3A1), size: 18),
-                          SizedBox(width: 8),
-                          Text('Lihat Sheet'),
-                        ]),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(width: 4),
-                  GestureDetector(
-                    onTap: () {
-                      if (!_syncLock) _tarikDanGabung();
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: _syncColor.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(24),
-                      ),
-                      child: Icon(
-                        syncing ? Icons.downloading : Icons.cloud_download,
-                        size: 28,
-                        color: _syncColor,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              if (_adaHantu)
-                Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Text(
-                    '📥 Ada data baru di Sheets. Tap ⬇️ untuk tarik & gabung.',
-                    style: TextStyle(
-                        fontSize: 11, color: const Color(0xFFF9E2AF)),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              if (belumSync > 0)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFF9E2AF),
-                        padding: const EdgeInsets.all(10),
-                      ),
-                      onPressed: syncing ? null : () => _sync(retry: true),
-                      icon: syncing
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: Colors.black))
-                          : const Icon(Icons.cloud_upload,
-                              color: Colors.black),
-                      label: Text(
-                        syncing
-                            ? 'SYNC $progress'
-                            : 'KIRIM KE SHEETS ($belumSync)',
-                        style: const TextStyle(
-                            color: Colors.black,
-                            fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                  ),
-                ),
-              const SizedBox(height: 16),
-              if (menuAktif.isEmpty)
-                Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF313244),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Column(children: [
-                    const Text('Menu belum diatur',
-                        style: TextStyle(color: Colors.white70)),
-                    const SizedBox(height: 8),
-                    ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFCBA6F7)),
-                      onPressed: _openMenuSettings,
-                      icon: const Icon(Icons.tune, color: Colors.black),
-                      label: const Text('ATUR MENU',
-                          style: TextStyle(color: Colors.black)),
-                    ),
-                  ]),
-                )
-              else
-                GridView.count(
-                  crossAxisCount: 2,
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  childAspectRatio: 2.2,
-                  mainAxisSpacing: 8,
-                  crossAxisSpacing: 8,
-                  children: menuAktif
-                      .map((m) => ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF89B4FA),
-                              padding: const EdgeInsets.all(6),
-                            ),
-                            onPressed: () => _inputMenu(m),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(m.nama,
-                                    style: const TextStyle(
-                                        fontSize: 13,
-                                        color: Colors.black,
-                                        fontWeight: FontWeight.w600),
-                                    textAlign: TextAlign.center,
-                                    overflow: TextOverflow.ellipsis),
-                                const SizedBox(height: 2),
-                                Text('Rp ${rp(m.harga)}',
-                                    style: const TextStyle(
-                                        fontSize: 16,
-                                        color: Colors.black,
-                                        fontWeight: FontWeight.bold)),
-                              ],
-                            ),
-                          ))
-                      .toList(),
-                ),
-              const SizedBox(height: 20),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('RIWAYAT PENJUALAN',
-                      style: TextStyle(
-                          fontSize: 14, color: Color(0xFF89B4FA))),
-                  Text('($_labelFilterAktif)',
-                      style: const TextStyle(
-                          fontSize: 12, color: Colors.white70)),
-                ],
-              ),
-              const SizedBox(height: 8),
-              if (r.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.all(20),
-                  child: Text('Belum ada transaksi',
-                      style: TextStyle(color: Colors.grey)),
-                )
-              else
-                ...r.asMap().entries.map((e) => Container(
-                      margin: const EdgeInsets.only(bottom: 6),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF313244),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(children: [
-                        Icon(
-                          e.value.synced ? Icons.cloud_done : Icons.cloud_off,
-                          color: e.value.synced
-                              ? const Color(0xFFA6E3A1)
-                              : const Color(0xFFF9E2AF),
-                          size: 16,
-                        ),
-                        const SizedBox(width: 8),
-                        Icon(
-                          e.value.metode == 'QRIS'
-                              ? Icons.qr_code
-                              : Icons.payments,
-                          size: 18,
-                          color: e.value.metode == 'QRIS'
-                              ? const Color(0xFF89B4FA)
-                              : const Color(0xFFA6E3A1),
-                        ),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                '${e.key + 1}. ${fmtTglPendek(e.value.tanggal)} - ${e.value.jam}',
-                                style: const TextStyle(
-                                    color: Colors.white70, fontSize: 11),
-                              ),
-                              Text('Rp ${rp(e.value.nominal)}',
-                                  style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.bold)),
-                            ],
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.print,
-                              color: Color(0xFFA6E3A1), size: 20),
-                          onPressed: () => _cetakStruk(e.value),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.edit,
-                              color: Color(0xFF89B4FA), size: 20),
-                          onPressed: () => _edit(e.value),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.delete,
-                              color: Color(0xFFF38BA8), size: 20),
-                          onPressed: () => _hapus(e.value),
-                        ),
-                      ]),
-                    )),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF89B4FA),
-                      padding: const EdgeInsets.all(14)),
-                  onPressed: _openLaporan,
-                  icon: const Icon(Icons.bar_chart, color: Colors.black),
-                  label: const Text('LAPORAN PENJUALAN',
-                      style: TextStyle(
-                          color: Colors.black,
-                          fontWeight: FontWeight.bold)),
-                ),
-              ),
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFA6E3A1),
-                      padding: const EdgeInsets.all(16)),
-                  onPressed: _export,
-                  icon: const Icon(Icons.download, color: Colors.black),
-                  label: const Text('EXPORT KE CSV',
-                      style: TextStyle(
-                          color: Colors.black,
-                          fontWeight: FontWeight.bold)),
+                child: Text(
+                  showOmset ? 'Omset Hari Ini: Rp ${rp(_totalPeriode)}' : 'Omset: ••••••••',
+                  style: const TextStyle(fontSize: 16, color: Color(0xFFA6E3A1)),
                 ),
               ),
             ],
           ),
         ),
+        
+        // List Menu & Keranjang
+        Expanded(
+          child: Row(
+            children: [
+              // Kiri: Grid Menu
+              Expanded(
+                flex: 2,
+                child: GridView.builder(
+                  padding: const EdgeInsets.all(8),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    childAspectRatio: 1.2,
+                    crossAxisSpacing: 8,
+                    mainAxisSpacing: 8,
+                  ),
+                  itemCount: menuAktif.length,
+                  itemBuilder: (context, i) {
+                    final m = menuAktif[i];
+                    return ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF89B4FA),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          keranjang.add(m);
+                        });
+                      },
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(m.nama, style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+                          Text('Rp ${rp(m.harga)}', style: const TextStyle(color: Colors.black, fontSize: 12)),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+              
+              // Kanan: Keranjang
+              Container(
+                width: 130,
+                color: const Color(0xFF181825),
+                child: Column(
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.all(8.0),
+                      child: Text('KERANJANG', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                    ),
+                    Expanded(
+                      child: ListView.builder(
+                        itemCount: keranjang.length,
+                        itemBuilder: (c, i) {
+                          return ListTile(
+                            dense: true,
+                            title: Text(keranjang[i].nama, style: const TextStyle(fontSize: 12, color: Colors.white)),
+                            subtitle: Text('Rp ${rp(keranjang[i].harga)}', style: const TextStyle(fontSize: 11)),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.close, size: 14, color: Colors.red),
+                              onPressed: () => setState(() => keranjang.removeAt(i)),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      child: Column(
+                        children: [
+                          Text('Total: Rp ${rp(keranjang.fold(0, (s, t) => s + t.harga))}', 
+                            style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFA6E3A1))),
+                          const SizedBox(height: 8),
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFA6E3A1),
+                              minimumSize: const Size(double.infinity, 40),
+                            ),
+                            onPressed: keranjang.isEmpty ? null : _prosesPembayaran,
+                            child: const Text('BAYAR', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                          )
+                        ],
+                      ),
+                    )
+                  ],
+                ),
+              )
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ================== HALAMAN RIWAYAT (TAB 2) ==================
+  Widget _buildHalamanRiwayat() {
+    final r = _riwayat();
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(12.0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Riwayat Penjualan', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              TextButton.icon(
+                onPressed: _bukaLihatSubmenuFilter,
+                icon: const Icon(Icons.filter_list),
+                label: Text(_labelFilterAktif),
+              )
+            ],
+          ),
+        ),
+        Expanded(
+          child: r.isEmpty
+              ? const Center(child: Text('Belum ada transaksi'))
+              : ListView.builder(
+                  itemCount: r.length,
+                  itemBuilder: (c, i) {
+                    final t = r[i];
+                    return Card(
+                      color: const Color(0xFF313244),
+                      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      child: ListTile(
+                        leading: Icon(t.metode == 'QRIS' ? Icons.qr_code : Icons.payments),
+                        title: Text('Rp ${rp(t.nominal)}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                        subtitle: Text('${t.tanggal} ${t.jam} - ${t.metode}'),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(icon: const Icon(Icons.print, color: Color(0xFFA6E3A1)), onPressed: () => _cetakStruk(t)),
+                            IconButton(icon: const Icon(Icons.delete, color: Color(0xFFF38BA8)), onPressed: () => _hapus(t)),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+
+  // ================== HALAMAN PENGATURAN (TAB 3) ==================
+  Widget _buildHalamanPengaturan() {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        const Text('PENGATURAN APLIKASI', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 20),
+        
+        // Sinkronisasi & Tarik Data
+        Card(
+          color: const Color(0xFF313244),
+          child: Column(
+            children: [
+              ListTile(
+                leading: const Icon(Icons.cloud_upload, color: Color(0xFFF9E2AF)),
+                title: Text('Kirim ke Sheets ($belumSync data)'),
+                onTap: () => _sync(retry: true),
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.cloud_download, color: Color(0xFFCBA6F7)),
+                title: const Text('Tarik Data dari Sheets'),
+                onTap: _tarikDanGabung,
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.table_chart, color: Color(0xFFA6E3A1)),
+                title: const Text('Lihat Data di Sheet'),
+                onTap: _bukaLihatSheet,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // Pengaturan Menu & Script
+        Card(
+          color: const Color(0xFF313244),
+          child: Column(
+            children: [
+              ListTile(
+                leading: const Icon(Icons.tune, color: Color(0xFF89B4FA)),
+                title: const Text('Atur Menu & Harga'),
+                onTap: _openMenuSettings,
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.link, color: Color(0xFF89B4FA)),
+                title: const Text('Atur URL Apps Script'),
+                onTap: _openUrlSettings,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // Profil Kasir & Cabang
+        Card(
+          color: const Color(0xFF313244),
+          child: Column(
+            children: [
+              ListTile(
+                leading: const Icon(Icons.person, color: Colors.white70),
+                title: const Text('Nama Kasir'),
+                subtitle: Text(namaKasir),
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.store, color: Colors.white70),
+                title: const Text('Cabang'),
+                subtitle: Text(namaCabang.isEmpty ? '-' : namaCabang),
+                trailing: const Icon(Icons.edit, size: 16),
+                onTap: () async {
+                  final c = TextEditingController(text: namaCabang);
+                  final res = await showDialog<String>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: const Text('Nama Cabang'),
+                      content: TextField(controller: c),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('BATAL')),
+                        ElevatedButton(
+                          onPressed: () => Navigator.pop(ctx, c.text),
+                          child: const Text('SIMPAN'),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (res != null) {
+                    final p = await SharedPreferences.getInstance();
+                    await p.setString('namaCabang', res);
+                    setState(() => namaCabang = res);
+                  }
+                },
+              ),
+            ],
+          ),
+        )
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final List<Widget> _pages = [
+      _buildHalamanKasir(),
+      _buildHalamanRiwayat(),
+      _buildHalamanPengaturan(),
+    ];
+
+    return Scaffold(
+      body: SafeArea(
+        child: IndexedStack(
+          index: _currentIndex,
+          children: _pages,
+        ),
+      ),
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _currentIndex,
+        onTap: (index) {
+          setState(() => _currentIndex = index);
+        },
+        backgroundColor: const Color(0xFF1E1E2E),
+        selectedItemColor: const Color(0xFF89B4FA),
+        unselectedItemColor: Colors.white54,
+        items: const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.storefront),
+            label: 'Kasir',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.receipt_long),
+            label: 'Riwayat',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.settings),
+            label: 'Pengaturan',
+          ),
+        ],
       ),
     );
   }
@@ -1872,295 +1598,6 @@ class _MenuSettingsPageState extends State<MenuSettingsPage> {
       ),
     );
   }
-}
-
-// ================== LAPORAN KASIR ==================
-class LaporanPage extends StatefulWidget {
-  final List<Transaksi> data;
-  final String nama;
-  const LaporanPage({super.key, required this.data, required this.nama});
-
-  @override
-  State<LaporanPage> createState() => _LaporanPageState();
-}
-
-class _LaporanPageState extends State<LaporanPage> {
-  DateTime? t1, t2;
-  static const bln = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun',
-    'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'
-  ];
-
-  List<Transaksi> get _f {
-    if (t1 == null || t2 == null) return [];
-    final a = tglStr(t1!);
-    final b = tglStr(t2!);
-    return widget.data
-        .where((x) =>
-            x.tanggal.compareTo(a) >= 0 && x.tanggal.compareTo(b) <= 0)
-        .toList();
-  }
-
-  int get _total => _f.fold(0, (s, t) => s + t.nominal);
-  int get _totalT =>
-      _f.where((t) => t.metode == 'Tunai').fold(0, (s, t) => s + t.nominal);
-  int get _totalQ =>
-      _f.where((t) => t.metode == 'QRIS').fold(0, (s, t) => s + t.nominal);
-
-  Map<String, int> get _perHari {
-    final m = <String, int>{};
-    for (final t in _f) {
-      m[t.tanggal] = (m[t.tanggal] ?? 0) + t.nominal;
-    }
-    return m;
-  }
-
-  Map<String, int> get _countHari {
-    final m = <String, int>{};
-    for (final t in _f) {
-      m[t.tanggal] = (m[t.tanggal] ?? 0) + 1;
-    }
-    return m;
-  }
-
-  Future<void> _pilih() async {
-    final now = DateTime.now();
-    final r = await showDateRangePicker(
-      context: context,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2100),
-      initialDateRange: (t1 != null && t2 != null)
-          ? DateTimeRange(start: t1!, end: t2!)
-          : DateTimeRange(
-              start: now.subtract(const Duration(days: 7)), end: now),
-      builder: (c, ch) => Theme(
-        data: ThemeData.dark().copyWith(
-          colorScheme: const ColorScheme.dark(
-            primary: Color(0xFF89B4FA),
-            onPrimary: Colors.black,
-            surface: Color(0xFF1E1E2E),
-            onSurface: Colors.white,
-          ),
-        ),
-        child: ch!,
-      ),
-    );
-    if (r == null) return;
-    setState(() {
-      t1 = r.start;
-      t2 = r.end;
-    });
-  }
-
-  void _cepat(int hari) {
-    final n = DateTime.now();
-    final t = DateTime(n.year, n.month, n.day);
-    setState(() {
-      t1 = t.subtract(Duration(days: hari - 1));
-      t2 = t;
-    });
-  }
-
-  void _bulanIni() {
-    final n = DateTime.now();
-    setState(() {
-      t1 = DateTime(n.year, n.month, 1);
-      t2 = DateTime(n.year, n.month, n.day);
-    });
-  }
-
-  String _tgtT(DateTime d) => '${d.day} ${bln[d.month - 1]} ${d.year}';
-
-  @override
-  Widget build(BuildContext context) {
-    final ph = _perHari;
-    final pc = _countHari;
-    final keys = ph.keys.toList()..sort((a, b) => b.compareTo(a));
-    final ada = t1 != null && t2 != null;
-
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Laporan - ${widget.nama}'),
-        backgroundColor: const Color(0xFF1E1E2E),
-      ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF89B4FA),
-                    padding: const EdgeInsets.all(14)),
-                onPressed: _pilih,
-                icon: const Icon(Icons.date_range, color: Colors.black),
-                label: const Text('PILIH RENTANG TANGGAL',
-                    style: TextStyle(
-                        color: Colors.black,
-                        fontWeight: FontWeight.bold)),
-              ),
-              const SizedBox(height: 10),
-              const Text('ATAU PILIH CEPAT:',
-                  style: TextStyle(
-                      fontSize: 12, color: Color(0xFF89B4FA))),
-              const SizedBox(height: 6),
-              Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: [
-                  _chip('Hari Ini', () => _cepat(1)),
-                  _chip('7 Hari', () => _cepat(7)),
-                  _chip('30 Hari', () => _cepat(30)),
-                  _chip('Bulan Ini', _bulanIni),
-                ],
-              ),
-              const SizedBox(height: 16),
-              if (ada)
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF313244),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Column(children: [
-                    Text('Periode: ${_tgtT(t1!)} s/d ${_tgtT(t2!)}',
-                        style: const TextStyle(
-                            color: Color(0xFF89B4FA), fontSize: 13),
-                        textAlign: TextAlign.center),
-                    const SizedBox(height: 12),
-                    const Text('TOTAL OMZET',
-                        style: TextStyle(
-                            color: Colors.white70, fontSize: 12)),
-                    const SizedBox(height: 4),
-                    Text('Rp ${rp(_total)}',
-                        style: const TextStyle(
-                            color: Color(0xFFA6E3A1),
-                            fontSize: 28,
-                            fontWeight: FontWeight.bold)),
-                    const Divider(color: Colors.white24, height: 24),
-                    Row(children: [
-                      Expanded(
-                        child: Column(children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: const [
-                              Icon(Icons.payments,
-                                  size: 16, color: Color(0xFFA6E3A1)),
-                              SizedBox(width: 4),
-                              Text('Tunai',
-                                  style: TextStyle(
-                                      color: Colors.white70,
-                                      fontSize: 12)),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Text('Rp ${rp(_totalT)}',
-                              style: const TextStyle(
-                                  color: Color(0xFFA6E3A1),
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.bold)),
-                        ]),
-                      ),
-                      Container(
-                          width: 1, height: 40, color: Colors.white24),
-                      Expanded(
-                        child: Column(children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: const [
-                              Icon(Icons.qr_code,
-                                  size: 16, color: Color(0xFF89B4FA)),
-                              SizedBox(width: 4),
-                              Text('QRIS',
-                                  style: TextStyle(
-                                      color: Colors.white70,
-                                      fontSize: 12)),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Text('Rp ${rp(_totalQ)}',
-                              style: const TextStyle(
-                                  color: Color(0xFF89B4FA),
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.bold)),
-                        ]),
-                      ),
-                    ]),
-                    const SizedBox(height: 10),
-                    Text(
-                        '${_f.length} transaksi · ${ph.length} hari ada transaksi',
-                        style: const TextStyle(
-                            color: Colors.white70, fontSize: 12)),
-                  ]),
-                )
-              else
-                Container(
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF313244),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Text('Pilih rentang tanggal dulu',
-                      style: TextStyle(color: Colors.white70),
-                      textAlign: TextAlign.center),
-                ),
-              const SizedBox(height: 16),
-              if (ada && keys.isNotEmpty) ...[
-                const Text('RINCIAN PER HARI',
-                    style: TextStyle(
-                        fontSize: 13, color: Color(0xFF89B4FA))),
-                const SizedBox(height: 8),
-                ...keys.map((t) {
-                  final p = t.split('-');
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 6),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF313244),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                                '${p[2]} ${bln[int.parse(p[1]) - 1]} ${p[0]}',
-                                style: const TextStyle(
-                                    color: Colors.white, fontSize: 14)),
-                            Text('${pc[t]} transaksi',
-                                style: const TextStyle(
-                                    color: Colors.white54,
-                                    fontSize: 11)),
-                          ],
-                        ),
-                        Text('Rp ${rp(ph[t]!)}',
-                            style: const TextStyle(
-                                color: Color(0xFFA6E3A1),
-                                fontSize: 14,
-                                fontWeight: FontWeight.bold)),
-                      ],
-                    ),
-                  );
-                }),
-                const SizedBox(height: 20),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _chip(String l, VoidCallback t) => ActionChip(
-        label: Text(l, style: const TextStyle(fontSize: 12)),
-        backgroundColor: const Color(0xFF45475A),
-        labelStyle: const TextStyle(color: Colors.white),
-        onPressed: t,
-      );
 }
 
 // ================== HALAMAN LIHAT SHEET ==================
