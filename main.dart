@@ -610,6 +610,49 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
   _sync(silent: true, retry: true);
   _tanyaCetak(b);
 }
+  Future<void> _prosesPembayaran() async {
+  // ... (kode pembayaran kamu)
+  _sync(silent: true, retry: true);
+  _tanyaCetak(b);
+}
+
+// --- PASTE 2 FUNGSI INI DI SINI ---
+List<RincianItem> _groupKeranjang() {
+  final map = <String, RincianItem>{};
+  for (var k in keranjang) {
+    final key = '${k.nama}_${k.harga}';
+    if (map.containsKey(key)) { 
+      map[key]!.qty += 1; 
+    } else { 
+      map[key] = RincianItem(nama: k.nama, harga: k.harga, qty: 1); 
+    }
+  }
+  return map.values.toList();
+}
+
+Future<bool> _mintaIzinPrinter() async {
+  final statuses = await [
+    Permission.bluetooth, 
+    Permission.bluetoothConnect, 
+    Permission.bluetoothScan, 
+    Permission.locationWhenInUse
+  ].request();
+  
+  if (!statuses.values.every((s) => s.isGranted || s.isLimited || s.isRestricted)) {
+    if (statuses.values.any((s) => s.isPermanentlyDenied)) { 
+      _snack('Izin ditolak permanen', err: true); 
+      await openAppSettings(); 
+    } else { 
+      _snack('Izin Bluetooth diperlukan', err: true); 
+    }
+    return false;
+  }
+  return true;
+}
+// ----------------------------------
+
+void _tanyaCetak(Transaksi t) {
+  showDialog( ...
   void _tanyaCetak(Transaksi t) {
     showDialog(context: context, builder: (c) => AlertDialog(
       title: const Text('Cetak Struk?'),
