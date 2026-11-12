@@ -36,36 +36,37 @@ jobs:
       - name: Tambah izin INTERNET + BLUETOOTH
         run: |
           MANIFEST=android/app/src/main/AndroidManifest.xml
-          # Izin Internet
           if ! grep -q 'android.permission.INTERNET' $MANIFEST; then
             sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/>\n    <application|' $MANIFEST
           fi
-          # Izin Bluetooth (Android 12+)
           if ! grep -q 'android.permission.BLUETOOTH_CONNECT' $MANIFEST; then
             sed -i 's|<application|<uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30"/>\n    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30"/>\n    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>\n    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"/>\n    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30"/>\n    <application|' $MANIFEST
           fi
 
-      - name: Paksa Kotlin Versi 2.0.0 (Agar tidak error)
+      - name: Paksa Kotlin Versi 2.0.0
         run: |
-          # 1. Update settings.gradle (versi baru Flutter)
           if [ -f "android/settings.gradle" ]; then
             sed -i 's/org\.jetbrains\.kotlin\.android" version "[^"]*"/org.jetbrains.kotlin.android" version "2.0.0"/g' android/settings.gradle || true
           fi
-          # 2. Update settings.gradle.kts (versi baru Flutter .kts)
           if [ -f "android/settings.gradle.kts" ]; then
             sed -i 's/org\.jetbrains\.kotlin\.android" version "[^"]*"/org.jetbrains.kotlin.android" version "2.0.0"/g' android/settings.gradle.kts || true
-          fi
-          # 3. Update build.gradle (format lama)
-          if [ -f "android/build.gradle" ]; then
-            sed -i "s/ext.kotlin_version = .*/ext.kotlin_version = '2.0.0'/" android/build.gradle || true
-          fi
-          # 4. Update build.gradle.kts (format lama .kts)
-          if [ -f "android/build.gradle.kts" ]; then
-            sed -i "s/ext.kotlin_version = .*/ext.kotlin_version = '2.0.0'/" android/build.gradle.kts || true
           fi
 
       - name: Install dependencies
         run: flutter pub get
+
+      - name: Install ImageMagick (Untuk Convert Logo)
+        run: sudo apt-get install -y imagemagick
+
+      - name: Pasang Logo Aplikasi
+        run: |
+          convert logo_kasir.jpg -resize 1024x1024 logo.png
+          flutter pub add flutter_launcher_icons
+          flutter pub add flutter_launcher_icons --dev
+          echo "flutter_launcher_icons:" >> pubspec.yaml
+          echo "  android: true" >> pubspec.yaml
+          echo "  image_path: \"logo.png\"" >> pubspec.yaml
+          flutter pub run flutter_launcher_icons
 
       - name: Build APK
         run: flutter build apk --release
