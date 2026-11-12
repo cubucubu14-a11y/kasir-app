@@ -472,22 +472,79 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
 
   // --- PEMBAYARAN & KEMBALIAN ---
   Future<void> _prosesPembayaran() async {
-    final total = keranjang.fold(0, (s, t) => s + t.harga);
-    final cUang = TextEditingController();
-    
-    final bayar = await showDialog<bool>(
-      context: context,
-      builder: (c) => StatefulBuilder(
-        builder: (ctx, setL) {
-          final uang = int.tryParse(cUang.text) ?? 0;
-          final kembali = uang - total;
-          return AlertDialog(
-            title: const Text('Pembayaran'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text('Total: Rp ${rp(total)}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFFA6E3A1))),
-                const SizedBox(height: 16),
+  final total = keranjang.fold(0, (s, t) => s + t.harga);
+  final cUang = TextEditingController();
+  String metodePilihan = 'Tunai'; // Default
+  
+  final bayar = await showDialog<bool>(
+    context: context,
+    builder: (c) => StatefulBuilder(
+      builder: (ctx, setL) {
+        final uang = int.tryParse(cUang.text) ?? 0;
+        final kembali = uang - total;
+        
+        // Jika QRIS, uang diterima dianggap Pas
+        final isLunas = metodePilihan == 'QRIS' || uang >= total;
+
+        return AlertDialog(
+          title: const Text('Pembayaran'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Total: Rp ${rp(total)}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFFA6E3A1))),
+              const SizedBox(height: 12),
+              
+              // Pilihan Metode Pembayaran
+              Row(
+                children: [
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => setL(() => metodePilihan = 'Tunai'),
+                      child: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: metodePilihan == 'Tunai' ? const Color(0xFFA6E3A1) : const Color(0xFF45475A),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.payments, size: 16, color: metodePilihan == 'Tunai' ? Colors.black : Colors.white),
+                            const SizedBox(width: 4),
+                            Text('Tunai', style: TextStyle(color: metodePilihan == 'Tunai' ? Colors.black : Colors.white)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => setL(() => metodePilihan = 'QRIS'),
+                      child: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: metodePilihan == 'QRIS' ? const Color(0xFF89B4FA) : const Color(0xFF45475A),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.qr_code, size: 16, color: metodePilihan == 'QRIS' ? Colors.black : Colors.white),
+                            const SizedBox(width: 4),
+                            Text('QRIS', style: TextStyle(color: metodePilihan == 'QRIS' ? Colors.black : Colors.white)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              
+              const SizedBox(height: 16),
+              
+              // Input Uang (Hanya muncul kalau pilih Tunai)
+              if (metodePilihan == 'Tunai') ...[
                 TextField(
                   controller: cUang,
                   keyboardType: TextInputType.number,
@@ -495,62 +552,64 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
                   decoration: const InputDecoration(labelText: 'Uang Diterima', prefixText: 'Rp '),
                 ),
                 const SizedBox(height: 8),
-                Text('Kembalian: Rp ${rp(kembali > 0 ? kembali : 0)}', style: TextStyle(color: kembali >= 0 && uang > 0 ? Colors.green : Colors.red)),
+                Text('Kembalian: Rp ${rp(kembali > 0 ? kembali : 0)}', 
+                  style: TextStyle(color: kembali >= 0 && uang > 0 ? Colors.green : Colors.red)),
                 const SizedBox(height: 16),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
                     OutlinedButton(onPressed: () { cUang.text = total.toString(); setL(() {}); }, child: const Text('UANG PAS')),
                     ElevatedButton(
-                      onPressed: (uang >= total) ? () => Navigator.pop(c, true) : null,
+                      onPressed: isLunas ? () => Navigator.pop(c, true) : null,
                       style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF89B4FA)),
                       child: const Text('PROSES', style: TextStyle(color: Colors.black)),
                     ),
                   ],
                 )
-              ],
-            ),
-            actions: [TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('BATAL'))],
-          );
-        }
-      ),
-    );
+              ] else ...[
+                // Jika QRIS, langsung tombol proses
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(c, true),
+                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF89B4FA)),
+                    child: const Text('PROSES QRIS', style: TextStyle(color: Colors.black)),
+                  ),
+                )
+              ]
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('BATAL'))
+          ],
+        );
+      }
+    ),
+  );
 
-    if (bayar != true) return;
-    
-    // Simpan transaksi (Metode disederhanakan menjadi Tunai untuk hitung kembalian)
-    final now = DateTime.now();
-    final b = Transaksi(
-      id: now.microsecondsSinceEpoch, tanggal: tglStr(now), jam: jamStr(now),
-      nominal: total, metode: 'Tunai',
-      rincian: _groupKeranjang(),
-    );
-    setState(() { data.add(b); keranjang.clear(); _showKeranjang = false; });
-    await _save();
-    _sync(silent: true, retry: true);
-    _tanyaCetak(b);
-  }
-
-  List<RincianItem> _groupKeranjang() {
-    final map = <String, RincianItem>{};
-    for (var k in keranjang) {
-      final key = '${k.nama}_${k.harga}';
-      if (map.containsKey(key)) { map[key]!.qty += 1; } else { map[key] = RincianItem(nama: k.nama, harga: k.harga, qty: 1); }
-    }
-    return map.values.toList();
-  }
-
-  // --- PRINT PREVIEW ---
-  Future<bool> _mintaIzinPrinter() async {
-    final statuses = await [Permission.bluetooth, Permission.bluetoothConnect, Permission.bluetoothScan, Permission.locationWhenInUse].request();
-    if (!statuses.values.every((s) => s.isGranted || s.isLimited || s.isRestricted)) {
-      if (statuses.values.any((s) => s.isPermanentlyDenied)) { _snack('Izin ditolak permanen', err: true); await openAppSettings(); }
-      else { _snack('Izin Bluetooth diperlukan', err: true); }
-      return false;
-    }
-    return true;
-  }
-
+  if (bayar != true) return;
+  
+  final now = DateTime.now();
+  final b = Transaksi(
+    id: now.microsecondsSinceEpoch, 
+    tanggal: tglStr(now), 
+    jam: jamStr(now),
+    nominal: total, 
+    metode: metodePilihan, // <-- Ini yang menyimpan metode Tunai/QRIS
+    rincian: _groupKeranjang(),
+  );
+  
+  setState(() { 
+    data.add(b); 
+    keranjang.clear(); 
+    _showKeranjang = false; 
+  });
+  
+  await _save();
+  _sync(silent: true, retry: true);
+  _tanyaCetak(b);
+}
   void _tanyaCetak(Transaksi t) {
     showDialog(context: context, builder: (c) => AlertDialog(
       title: const Text('Cetak Struk?'),
