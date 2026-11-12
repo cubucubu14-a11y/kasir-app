@@ -951,8 +951,15 @@ class _PrinterScanPageState extends State<PrinterScanPage> {
   void initState() { super.initState(); _scanPrinter(); }
   Future<void> _scanPrinter() async {
     setState(() => scanning = true);
-    try { setState(() { perangkatList = await PrintBluetoothThermal.pairedBluetooths; scanning = false; }); }
-    catch (e) { setState(() => scanning = false); }
+   try {
+  final list = await PrintBluetoothThermal.pairedBluetooths;
+  setState(() {
+    perangkatList = list;
+    scanning = false;
+  });
+} catch (e) {
+  setState(() => scanning = false);
+}
   }
   @override
   Widget build(BuildContext context) {
