@@ -284,7 +284,7 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
   // Variabel untuk Bottom Navigation & Keranjang
   int _currentIndex = 0;
   List<MenuItem> keranjang = [];
-
+  bool _showKeranjang = false; // <--- TAMBAHKAN INI
   @override
   void initState() {
     super.initState();
@@ -973,124 +973,220 @@ class _KasirPageState extends State<KasirPage> with WidgetsBindingObserver {
 
   // ================== HALAMAN KASIR (TAB 1) ==================
   Widget _buildHalamanKasir() {
-    final menuAktif = menus.where((m) => m.nama.isNotEmpty && m.harga > 0).toList();
+  final menuAktif = menus.where((m) => m.nama.isNotEmpty && m.harga > 0).toList();
 
-    return Column(
-      children: [
-        // Header Omset
-        Container(
-          padding: const EdgeInsets.all(12),
-          width: double.infinity,
-          color: const Color(0xFF313244),
-          child: Column(
-            children: [
-              Text(APP_HEADER, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-              GestureDetector(
-                onLongPressStart: (_) => setState(() => showOmset = true),
-                onLongPressEnd: (_) => setState(() => showOmset = false),
-                child: Text(
-                  showOmset ? 'Omset Hari Ini: Rp ${rp(_totalPeriode)}' : 'Omset: ••••••••',
-                  style: const TextStyle(fontSize: 16, color: Color(0xFFA6E3A1)),
-                ),
-              ),
-            ],
-          ),
-        ),
-        
-        // List Menu & Keranjang
-        Expanded(
-          child: Row(
-            children: [
-              // Kiri: Grid Menu
-              Expanded(
-                flex: 2,
-                child: GridView.builder(
-                  padding: const EdgeInsets.all(8),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2,
-                    childAspectRatio: 1.2,
-                    crossAxisSpacing: 8,
-                    mainAxisSpacing: 8,
+  return Stack(
+    children: [
+      Column(
+        children: [
+          // Header Omset
+          Container(
+            padding: const EdgeInsets.all(12),
+            width: double.infinity,
+            color: const Color(0xFF313244),
+            child: Column(
+              children: [
+                Text(APP_HEADER, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                GestureDetector(
+                  onLongPressStart: (_) => setState(() => showOmset = true),
+                  onLongPressEnd: (_) => setState(() => showOmset = false),
+                  child: Text(
+                    showOmset ? 'Omset Hari Ini: Rp ${rp(_totalPeriode)}' : 'Omset: ••••••••',
+                    style: const TextStyle(fontSize: 16, color: Color(0xFFA6E3A1)),
                   ),
-                  itemCount: menuAktif.length,
-                  itemBuilder: (context, i) {
-                    final m = menuAktif[i];
-                    return ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF89B4FA),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      onPressed: () {
-                        setState(() {
-                          keranjang.add(m);
-                        });
-                      },
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(m.nama, style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
-                          Text('Rp ${rp(m.harga)}', style: const TextStyle(color: Colors.black, fontSize: 12)),
-                        ],
-                      ),
-                    );
-                  },
                 ),
+              ],
+            ),
+          ),
+          
+          // Grid Menu Full Screen
+          Expanded(
+            child: GridView.builder(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 80), // Padding bawah untuk tombol keranjang
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                childAspectRatio: 1.3,
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 12,
               ),
-              
-              // Kanan: Keranjang
-              Container(
-                width: 130,
-                color: const Color(0xFF181825),
-                child: Column(
-                  children: [
-                    const Padding(
-                      padding: EdgeInsets.all(8.0),
-                      child: Text('KERANJANG', style: TextStyle(color: Colors.white70, fontSize: 12)),
-                    ),
-                    Expanded(
-                      child: ListView.builder(
-                        itemCount: keranjang.length,
-                        itemBuilder: (c, i) {
-                          return ListTile(
-                            dense: true,
-                            title: Text(keranjang[i].nama, style: const TextStyle(fontSize: 12, color: Colors.white)),
-                            subtitle: Text('Rp ${rp(keranjang[i].harga)}', style: const TextStyle(fontSize: 11)),
-                            trailing: IconButton(
-                              icon: const Icon(Icons.close, size: 14, color: Colors.red),
-                              onPressed: () => setState(() => keranjang.removeAt(i)),
-                            ),
-                          );
-                        },
+              itemCount: menuAktif.length,
+              itemBuilder: (context, i) {
+                final m = menuAktif[i];
+                // Hitung berapa banyak menu ini ada di keranjang
+                final qty = keranjang.where((k) => k.nama == m.nama && k.harga == m.harga).length;
+
+                return ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF89B4FA),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onPressed: () {
+                    setState(() {
+                      keranjang.add(m);
+                    });
+                  },
+                  child: Stack(
+                    children: [
+                      Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(m.nama, style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 16), textAlign: TextAlign.center),
+                            const SizedBox(height: 4),
+                            Text('Rp ${rp(m.harga)}', style: const TextStyle(color: Colors.black, fontSize: 14)),
+                          ],
+                        ),
                       ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      child: Column(
-                        children: [
-                          Text('Total: Rp ${rp(keranjang.fold(0, (s, t) => s + t.harga))}', 
-                            style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFA6E3A1))),
-                          const SizedBox(height: 8),
-                          ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFFA6E3A1),
-                              minimumSize: const Size(double.infinity, 40),
-                            ),
-                            onPressed: keranjang.isEmpty ? null : _prosesPembayaran,
-                            child: const Text('BAYAR', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-                          )
-                        ],
-                      ),
-                    )
-                  ],
-                ),
-              )
+                      // Badge jumlah jika ada di keranjang
+                      if (qty > 0)
+                        Positioned(
+                          top: 0,
+                          right: 0,
+                          child: CircleAvatar(
+                            radius: 12,
+                            backgroundColor: Colors.red,
+                            child: Text('$qty', style: const TextStyle(fontSize: 12, color: Colors.white)),
+                          ),
+                        )
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+
+      // Tombol Keranjang Melayang di Bawah
+      Positioned(
+        left: 16,
+        right: 16,
+        bottom: 16,
+        child: ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFFA6E3A1),
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+            elevation: 8,
+          ),
+          onPressed: () {
+            setState(() => _showKeranjang = true); // Buka Overlay Keranjang
+          },
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(left: 8.0),
+                child: Text('${keranjang.length} Item', style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 16)),
+              ),
+              Text('Lihat Keranjang • Rp ${rp(keranjang.fold(0, (s, t) => s + t.harga))}', 
+                style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 16)),
             ],
           ),
         ),
-      ],
-    );
-  }
+      ),
 
+      // OVERLAY KERANJANG (Muncul dari bawah)
+      if (_showKeranjang)
+        Positioned.fill(
+          child: GestureDetector(
+            onTap: () => setState(() => _showKeranjang = false), // Klik luar untuk tutup
+            child: Container(
+              color: Colors.black.withOpacity(0.6),
+              child: Align(
+                alignment: Alignment.bottomCenter,
+                child: GestureDetector(
+                  onTap: () {}, // Cegah klik tembus ke background
+                  child: Container(
+                    height: MediaQuery.of(context).size.height * 0.6, // 60% tinggi layar
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF1E1E2E),
+                      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                    ),
+                    child: Column(
+                      children: [
+                        // Handle bar
+                        Container(
+                          margin: const EdgeInsets.symmetric(vertical: 12),
+                          width: 40,
+                          height: 4,
+                          decoration: BoxDecoration(color: Colors.white38, borderRadius: BorderRadius.circular(2)),
+                        ),
+                        const Text('KERANJANG BELANJA', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                        const Divider(),
+                        
+                        // List Item Keranjang
+                        Expanded(
+                          child: keranjang.isEmpty
+                            ? const Center(child: Text('Keranjang masih kosong'))
+                            : ListView.builder(
+                                itemCount: keranjang.length,
+                                itemBuilder: (c, i) {
+                                  final k = keranjang[i];
+                                  return ListTile(
+                                    title: Text(k.nama, style: const TextStyle(color: Colors.white)),
+                                    subtitle: Text('Rp ${rp(k.harga)}', style: const TextStyle(color: Colors.white70)),
+                                    trailing: IconButton(
+                                      icon: const Icon(Icons.delete, color: Color(0xFFF38BA8)),
+                                      onPressed: () {
+                                        setState(() {
+                                          keranjang.removeAt(i);
+                                          if (keranjang.isEmpty) _showKeranjang = false; // Tutup jika kosong
+                                        });
+                                      },
+                                    ),
+                                  );
+                                },
+                              ),
+                        ),
+                        
+                        // Area Total & Tombol Bayar
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: const BoxDecoration(
+                            color: Color(0xFF313244),
+                            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                          ),
+                          child: Column(
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text('Total Belanja:', style: TextStyle(fontSize: 16)),
+                                  Text('Rp ${rp(keranjang.fold(0, (s, t) => s + t.harga))}', 
+                                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFFA6E3A1))),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                              SizedBox(
+                                width: double.infinity,
+                                child: ElevatedButton(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF89B4FA),
+                                    padding: const EdgeInsets.symmetric(vertical: 16),
+                                  ),
+                                  onPressed: keranjang.isEmpty ? null : () {
+                                    setState(() => _showKeranjang = false);
+                                    _prosesPembayaran();
+                                  },
+                                  child: const Text('BAYAR SEKARANG', 
+                                    style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 16)),
+                                ),
+                              )
+                            ],
+                          ),
+                        )
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+    ],
+  );
+}
   // ================== HALAMAN RIWAYAT (TAB 2) ==================
   Widget _buildHalamanRiwayat() {
     final r = _riwayat();
