@@ -632,27 +632,173 @@ List<RincianItem> _groupKeranjang() {
 
 Future<bool> _mintaIzinPrinter() async {
   final statuses = await [
-    Permission.bluetooth, 
-    Permission.bluetoothConnect, 
-    Permission.bluetoothScan, 
+    Permission.bluetooth,
+    Permission.bluetoothConnect,
+    Permission.bluetoothScan,
     Permission.locationWhenInUse
   ].request();
-  
+
   if (!statuses.values.every((s) => s.isGranted || s.isLimited || s.isRestricted)) {
-    if (statuses.values.any((s) => s.isPermanentlyDenied)) { 
-      _snack('Izin ditolak permanen', err: true); 
-      await openAppSettings(); 
-    } else { 
-      _snack('Izin Bluetooth diperlukan', err: true); 
+    if (statuses.values.any((s) => s.isPermanentlyDenied)) {
+      _snack('Izin ditolak permanen', err: true);
+      await openAppSettings();
+    } else {
+      _snack('Izin Bluetooth diperlukan', err: true);
     }
     return false;
   }
   return true;
 }
-// ----------------------------------
 
-void _tanyaCetak(Transaksi t) {
-  showDialog( ...
+Future<void> _prosesPembayaran() async {
+  final total = keranjang.fold(0, (s, t) => s + t.harga);
+  final cUang = TextEditingController();
+  String metodePilihan = 'Tunai'; 
+  
+  final bayar = await showDialog<bool>(
+    context: context,
+    builder: (c) => StatefulBuilder(
+      builder: (ctx, setL) {
+        final uang = int.tryParse(cUang.text) ?? 0;
+        final kembali = uang - total;
+        final isLunas = metodePilihan == 'QRIS' || uang >= total;
+
+        return AlertDialog(
+          title: const Text('Pembayaran'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Total: Rp ${rp(total)}', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFFA6E3A1))),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => setL(() => metodePilihan = 'Tunai'),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        decoration: BoxDecoration(
+                          color: metodePilihan == 'Tunai' ? const Color(0xFFA6E3A1) : const Color(0xFF45475A),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: metodePilihan == 'Tunai' ? Colors.white : Colors.transparent, width: 2)
+                        ),
+                        child: Column(
+                          children: [
+                            Icon(Icons.payments, size: 24, color: metodePilihan == 'Tunai' ? Colors.black : Colors.white),
+                            const SizedBox(height: 4),
+                            Text('TUNAI', style: TextStyle(color: metodePilihan == 'Tunai' ? Colors.black : Colors.white, fontWeight: FontWeight.bold)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => setL(() => metodePilihan = 'QRIS'),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        decoration: BoxDecoration(
+                          color: metodePilihan == 'QRIS' ? const Color(0xFF89B4FA) : const Color(0xFF45475A),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: metodePilihan == 'QRIS' ? Colors.white : Colors.transparent, width: 2)
+                        ),
+                        child: Column(
+                          children: [
+                            Icon(Icons.qr_code, size: 24, color: metodePilihan == 'QRIS' ? Colors.black : Colors.white),
+                            const SizedBox(height: 4),
+                            Text('QRIS', style: TextStyle(color: metodePilihan == 'QRIS' ? Colors.black : Colors.white, fontWeight: FontWeight.bold)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              if (metodePilihan == 'Tunai') ...[
+                TextField(
+                  controller: cUang,
+                  keyboardType: TextInputType.number,
+                  onChanged: (_) => setL(() {}),
+                  decoration: const InputDecoration(
+                    labelText: 'Uang Diterima', 
+                    prefixText: 'Rp ',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Kembalian:', style: TextStyle(fontSize: 14)),
+                    Text('Rp ${rp(kembali > 0 ? kembali : 0)}', 
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: kembali >= 0 && uang > 0 ? Colors.green : Colors.red)),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () { cUang.text = total.toString(); setL(() {}); }, 
+                        child: const Text('UANG PAS')
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: isLunas ? () => Navigator.pop(c, true) : null,
+                        style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF89B4FA), padding: const EdgeInsets.symmetric(vertical: 12)),
+                        child: const Text('PROSES', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                  ],
+                )
+              ] else ...[
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(c, true),
+                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF89B4FA), padding: const EdgeInsets.symmetric(vertical: 14)),
+                    child: const Text('PROSES QRIS', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                  ),
+                )
+              ]
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('BATAL', style: TextStyle(color: Colors.red)))
+          ],
+        );
+      }
+    ),
+  );
+
+  if (bayar != true) return;
+  
+  final now = DateTime.now();
+  final b = Transaksi(
+    id: now.microsecondsSinceEpoch, 
+    tanggal: tglStr(now), 
+    jam: jamStr(now),
+    nominal: total, 
+    metode: metodePilihan,
+    rincian: _groupKeranjang(),
+  );
+  
+  setState(() { 
+    data.add(b); 
+    keranjang.clear(); 
+    _showKeranjang = false; 
+  });
+  
+  await _save();
+  _sync(silent: true, retry: true);
+  _tanyaCetak(b);
+}
+
+// PASTIKAN KODE DI BAWAH INI TETAP ADA DAN TIDAK DOBEL
   void _tanyaCetak(Transaksi t) {
     showDialog(context: context, builder: (c) => AlertDialog(
       title: const Text('Cetak Struk?'),
