@@ -60,12 +60,19 @@ jobs:
 
       - name: Pasang Logo Aplikasi
         run: |
+          # 1. Convert logo
           convert logo_kasir.jpg -resize 1024x1024 logo.png
-          flutter pub add flutter_launcher_icons
-          flutter pub add flutter_launcher_icons --dev
+          
+          # 2. Install package logo (Hanya sekali lewat dev dependencies)
+          flutter pub add --dev flutter_launcher_icons
+          
+          # 3. Tambahkan konfigurasi ke pubspec.yaml
+          echo "" >> pubspec.yaml
           echo "flutter_launcher_icons:" >> pubspec.yaml
           echo "  android: true" >> pubspec.yaml
           echo "  image_path: \"logo.png\"" >> pubspec.yaml
+          
+          # 4. Jalankan perintah untuk membuat icon
           flutter pub run flutter_launcher_icons
 
       - name: Build APK
